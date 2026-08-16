@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manager Dashboard | Performance & Development Tracker</title>
+<style>
+:root{--bg:#f5f7fb;--panel:#fff;--line:#e5e7eb;--text:#18212f;--muted:#667085;--primary:#334155;--primary2:#0f172a;--soft:#eef2f7;--green:#16794a;--green-bg:#e8f6ee;--amber:#9a6700;--amber-bg:#fff5d6;--red:#b42318;--red-bg:#feeceb;--blue:#175cd3;--blue-bg:#eaf2ff;--shadow:0 8px 30px rgba(15,23,42,.06)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,Helvetica,sans-serif}button,input,select,textarea{font:inherit}button{cursor:pointer}.app{min-height:100vh;display:flex}.sidebar{width:250px;background:#111827;color:#fff;position:fixed;inset:0 auto 0 0;padding:22px 14px;display:flex;flex-direction:column;z-index:20}.brand{font-weight:800;font-size:18px;padding:4px 12px 24px}.brand small{display:block;color:#9ca3af;font-weight:400;font-size:11px;margin-top:5px}.nav-title{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:#9ca3af;padding:14px 12px 7px}.nav-btn{width:100%;border:0;background:transparent;color:#d1d5db;text-align:left;padding:11px 12px;border-radius:8px;margin:2px 0;font-size:14px}.nav-btn:hover,.nav-btn.active{background:#263244;color:#fff}.sidebar-bottom{margin-top:auto;border-top:1px solid #273244;padding-top:14px}.main{margin-left:250px;width:calc(100% - 250px);padding:26px 30px 50px}.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;gap:15px}.title h1{font-size:25px;margin:0 0 5px}.title p{margin:0;color:var(--muted);font-size:13px}.top-actions{display:flex;gap:9px;align-items:center}.avatar{width:38px;height:38px;border-radius:50%;background:#334155;color:#fff;display:grid;place-items:center;font-weight:700}.btn{border:1px solid var(--line);background:#fff;color:var(--text);padding:9px 13px;border-radius:7px;font-size:13px}.btn:hover{background:#f8fafc}.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}.btn.primary:hover{background:var(--primary2)}.btn.danger{color:var(--red);border-color:#f2c5c2}.btn.small{padding:6px 9px;font-size:12px}.page{display:none}.page.active{display:block}.grid{display:grid;gap:16px}.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:18px}.kpi .label{color:var(--muted);font-size:12px}.kpi .value{font-size:27px;font-weight:800;margin:8px 0 4px}.kpi .sub{font-size:11px;color:var(--muted)}.section-head{display:flex;justify-content:space-between;align-items:center;margin:24px 0 12px}.section-head h2{font-size:16px;margin:0}.section-head p{font-size:12px;color:var(--muted);margin:4px 0 0}.two{grid-template-columns:1.4fr 1fr}.three{grid-template-columns:repeat(3,1fr)}.table-wrap{overflow:auto}.table{width:100%;border-collapse:collapse;font-size:13px}.table th,.table td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}.table th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:#fafbfc}.table tr:last-child td{border-bottom:0}.status{display:inline-flex;padding:4px 8px;border-radius:99px;font-size:11px;font-weight:700}.status.green{background:var(--green-bg);color:var(--green)}.status.amber{background:var(--amber-bg);color:var(--amber)}.status.red{background:var(--red-bg);color:var(--red)}.status.blue{background:var(--blue-bg);color:var(--blue)}.progress{height:7px;background:#edf0f4;border-radius:99px;overflow:hidden}.progress>span{display:block;height:100%;background:#475569;border-radius:99px}.employee-list{display:grid;gap:10px}.employee-row{display:grid;grid-template-columns:1.4fr .8fr .8fr .8fr auto;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);font-size:12px}.employee-row:last-child{border-bottom:0}.person{display:flex;align-items:center;gap:9px}.mini-avatar{width:31px;height:31px;border-radius:50%;display:grid;place-items:center;background:#e2e8f0;font-weight:700;font-size:11px}.muted{color:var(--muted)}.toolbar{display:flex;gap:8px;flex-wrap:wrap}.toolbar input,.toolbar select,.field input,.field select,.field textarea{border:1px solid var(--line);border-radius:7px;padding:9px 10px;background:#fff;color:var(--text);outline:none;width:100%}.toolbar input{width:240px}.toolbar select{width:auto}.field{margin-bottom:13px}.field label{display:block;font-size:12px;font-weight:700;margin-bottom:6px}.field textarea{min-height:90px;resize:vertical}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.form-grid .full{grid-column:1/-1}.notice{padding:12px;border-radius:8px;font-size:12px;background:var(--soft);color:#475569}.notice.warn{background:var(--amber-bg);color:#805900}.chart{height:220px;display:flex;align-items:flex-end;gap:14px;padding:18px 5px 4px}.bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;gap:6px}.bar i{display:block;width:100%;max-width:48px;background:#475569;border-radius:5px 5px 0 0}.bar span{font-size:10px;color:var(--muted);text-align:center}.metric-list{display:grid;gap:12px}.metric{display:grid;grid-template-columns:150px 1fr 42px;gap:10px;align-items:center;font-size:12px}.metric strong{text-align:right}.activity{display:grid;gap:12px}.activity-item{display:flex;gap:10px;font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:#64748b;margin-top:5px;flex:0 0 auto}.tabs{display:flex;gap:5px;border-bottom:1px solid var(--line);margin-bottom:16px}.tab{border:0;background:transparent;padding:10px 12px;font-size:12px;color:var(--muted);border-bottom:2px solid transparent}.tab.active{color:var(--text);border-bottom-color:#334155;font-weight:700}.tab-panel{display:none}.tab-panel.active{display:block}.empty{text-align:center;padding:35px;color:var(--muted);font-size:13px}.action-group{display:flex;gap:6px;justify-content:flex-end}.score{font-weight:800}.checklist{display:grid;gap:8px}.check-row{display:flex;align-items:center;gap:8px;font-size:12px}.check-row input{accent-color:#334155}.modal-backdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:50;padding:25px;align-items:center;justify-content:center}.modal-backdrop.open{display:flex}.modal{background:#fff;border-radius:12px;width:min(720px,100%);max-height:90vh;overflow:auto;box-shadow:0 20px 70px rgba(0,0,0,.2)}.modal-head{display:flex;justify-content:space-between;align-items:center;padding:17px 20px;border-bottom:1px solid var(--line)}.modal-head h3{margin:0;font-size:16px}.modal-body{padding:20px}.close{border:0;background:transparent;font-size:22px;color:var(--muted)}.modal-foot{padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}.toast{position:fixed;right:24px;bottom:24px;background:#111827;color:#fff;padding:12px 16px;border-radius:8px;font-size:12px;box-shadow:var(--shadow);opacity:0;transform:translateY(10px);transition:.2s;z-index:100}.toast.show{opacity:1;transform:translateY(0)}.profile-card{display:flex;gap:16px;align-items:center}.profile-avatar{width:70px;height:70px;border-radius:50%;background:#334155;color:#fff;display:grid;place-items:center;font-size:23px;font-weight:800}.detail-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.detail-box{background:#f8fafc;border:1px solid var(--line);padding:12px;border-radius:8px}.detail-box small{display:block;color:var(--muted);font-size:10px;margin-bottom:5px}.detail-box strong{font-size:14px}.responsive-table{min-width:750px}@media(max-width:1050px){.kpis{grid-template-columns:repeat(2,1fr)}.two,.three{grid-template-columns:1fr}.sidebar{width:220px}.main{margin-left:220px;width:calc(100% - 220px)}}@media(max-width:760px){.sidebar{position:static;width:100%;height:auto}.app{display:block}.main{margin-left:0;width:100%;padding:18px}.sidebar-bottom{margin-top:10px}.topbar{align-items:flex-start;flex-direction:column}.kpis{grid-template-columns:1fr}.form-grid,.detail-grid{grid-template-columns:1fr}.employee-row{grid-template-columns:1fr 1fr}.toolbar input{width:100%}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="sidebar">
+  <div class="brand">P&D TRACKER<small>Manager workspace</small></div>
+  <div class="nav-title">Manager</div>
+  <button class="nav-btn active" data-page="overview" data-permission="manager.dashboard">Dashboard</button>
+  <button class="nav-btn" data-page="team" data-permission="manager.dashboard">My Team</button>
+  <button class="nav-btn" data-page="reviews" data-permission="manager.reviews">Reviews & Feedback</button>
+  <button class="nav-btn" data-page="goals" data-permission="manager.goals">Goals & PDPs</button>
+  <button class="nav-btn" data-page="pips" data-permission="manager.pips">Performance Improvement</button>
+  <button class="nav-btn" data-page="reports" data-permission="manager.reports">Reports & Insights</button>
+  <div class="nav-title">Personal</div>
+  <button class="nav-btn" data-page="personal">My Dashboard</button>
+  <button class="nav-btn" data-page="notifications">Notifications</button>
+  <div class="sidebar-bottom">
+    <button class="nav-btn" id="logoutBtn">Sign out</button>
+  </div>
+</aside>
+<main class="main">
+<header class="topbar">
+  <div class="title"><h1 id="pageTitle">Manager Dashboard</h1><p id="pageSubtitle">Monitor team performance, development and review progress.</p></div>
+  <div class="top-actions"><button class="btn" id="quickActionBtn">+ Quick action</button><div class="avatar" data-user-initials>U</div></div>
+</header>
+
+<section class="page active" id="page-overview">
+  <div class="grid kpis">
+    <div class="card kpi"><div class="label">Team members</div><div class="value" id="kpiTeam">4</div><div class="sub">Direct reports</div></div>
+    <div class="card kpi"><div class="label">Average performance</div><div class="value" id="kpiRating">—</div><div class="sub">Latest available ratings</div></div>
+    <div class="card kpi"><div class="label">Reviews requiring action</div><div class="value" id="kpiReviews">3</div><div class="sub">Self / manager review tasks</div></div>
+    <div class="card kpi"><div class="label">Development progress</div><div class="value" id="kpiPdp">0%</div><div class="sub">Average PDP action progress</div></div>
+  </div>
+  <div class="grid two">
+    <div class="card">
+      <div class="section-head"><div><h2>Team performance</h2><p>Current performance snapshot by employee.</p></div><button class="btn small" data-page-jump="team">View team</button></div>
+      <div class="employee-list" id="overviewTeam"></div>
+    </div>
+    <div class="card">
+      <div class="section-head"><div><h2>Review cycle</h2><p>H1 2026 review progress.</p></div><button class="btn small" data-page-jump="reviews">Open reviews</button></div>
+      <div class="metric-list" id="reviewMetrics"></div>
+      <div class="notice warn" style="margin-top:15px">Manager deadline: 24 Jul 2026. Complete pending manager reviews before the cycle can move forward.</div>
+    </div>
+  </div>
+  <div class="grid two">
+    <div class="card"><div class="section-head"><div><h2>Development watchlist</h2><p>Employees with PDP or skill-gap attention.</p></div><button class="btn small" data-page-jump="goals">Manage PDPs</button></div><div id="watchlist" class="activity"></div></div>
+    <div class="card"><div class="section-head"><div><h2>Recent activity</h2><p>Manager actions and team updates.</p></div><button class="btn small" data-page-jump="notifications">View all</button></div><div id="activityList" class="activity"></div></div>
+  </div>
+</section>
+
+<section class="page" id="page-team">
+  <div class="card">
+    <div class="section-head"><div><h2>My Team</h2><p>Only employees assigned to you are shown.</p></div><div class="toolbar"><input id="teamSearch" placeholder="Search employee..."><select id="teamFilter"><option value="all">All status</option><option value="attention">Needs attention</option><option value="ontrack">On track</option></select><button class="btn primary" id="addGoalFromTeam">Create goal</button></div></div>
+    <div class="table-wrap"><table class="table responsive-table"><thead><tr><th>Employee</th><th>Role</th><th>Review</th><th>Rating</th><th>Goals</th><th>PDP</th><th>Action</th></tr></thead><tbody id="teamTable"></tbody></table></div>
+  </div>
+</section>
+
+<section class="page" id="page-reviews">
+  <div class="card">
+    <div class="tabs"><button class="tab active" data-tab="review-pending">Manager reviews</button><button class="tab" data-tab="review-peers">Peer nominations</button><button class="tab" data-tab="review-feedback">360° feedback</button></div>
+    <div class="tab-panel active" id="review-pending"><div class="section-head"><div><h2>Manager review queue</h2><p>Review employee performance, add ratings and submit the manager review.</p></div><select id="reviewFilter"><option value="all">All</option><option value="pending">Needs review</option><option value="submitted">Submitted</option></select></div><div class="table-wrap"><table class="table responsive-table"><thead><tr><th>Employee</th><th>Cycle</th><th>Self review</th><th>Peer feedback</th><th>Manager review</th><th>Action</th></tr></thead><tbody id="reviewTable"></tbody></table></div></div>
+    <div class="tab-panel" id="review-peers"><div class="section-head"><div><h2>Approve peer nominees</h2><p>Employees can suggest peers; managers approve or reject the final reviewer list.</p></div></div><div class="table-wrap"><table class="table responsive-table"><thead><tr><th>Employee</th><th>Suggested peer</th><th>Status</th><th>Action</th></tr></thead><tbody id="peerTable"></tbody></table></div></div>
+    <div class="tab-panel" id="review-feedback"><div class="section-head"><div><h2>Anonymous 360° feedback</h2><p>Peer identities are never displayed. Feedback is shown only as aggregated results.</p></div><button class="btn" id="refreshFeedback">Refresh summary</button></div><div id="feedbackCards" class="grid two"></div></div>
+  </div>
+</section>
+
+<section class="page" id="page-goals">
+  <div class="card">
+    <div class="section-head"><div><h2>Goals & Personal Development Plans</h2><p>Create goals, approve employee goals, track milestones and manage PDP actions.</p></div><div class="toolbar"><button class="btn primary" id="newGoalBtn">+ Goal</button><button class="btn primary" id="newPdpBtn">+ PDP</button></div></div>
+    <div class="tabs"><button class="tab active" data-tab="goals-list">Team goals</button><button class="tab" data-tab="pdp-list">PDP actions</button></div>
+    <div class="tab-panel active" id="goals-list"><div class="table-wrap"><table class="table responsive-table"><thead><tr><th>Employee</th><th>Goal</th><th>Target / due</th><th>Progress</th><th>Status</th><th>Action</th></tr></thead><tbody id="goalsTable"></tbody></table></div></div>
+    <div class="tab-panel" id="pdp-list"><div class="table-wrap"><table class="table responsive-table"><thead><tr><th>Employee</th><th>PDP action</th><th>Due</th><th>Progress</th><th>Status</th><th>Action</th></tr></thead><tbody id="pdpTable"></tbody></table></div></div>
+  </div>
+</section>
+
+<section class="page" id="page-pips">
+  <div class="card">
+    <div class="section-head"><div><h2>Performance Improvement Plans</h2><p>Initiate measurable PIPs, define objectives and record check-ins. HR ownership is required for each PIP.</p></div><button class="btn primary" id="newPipBtn">+ Start PIP</button></div>
+    <div class="notice" style="margin-bottom:15px">PIP visibility is restricted to the relevant employee, manager, HR and administrator.</div>
+    <div class="table-wrap"><table class="table responsive-table"><thead><tr><th>Employee</th><th>Reason</th><th>Period</th><th>Objectives</th><th>Status</th><th>Action</th></tr></thead><tbody id="pipTable"></tbody></table></div>
+  </div>
+</section>
+
+<section class="page" id="page-reports">
+  <div class="grid kpis"><div class="card kpi"><div class="label">Average rating</div><div class="value" id="reportAvg">—</div><div class="sub">Across available team ratings</div></div><div class="card kpi"><div class="label">Goal completion</div><div class="value" id="reportGoal">0%</div><div class="sub">Team goal progress</div></div><div class="card kpi"><div class="label">Skill gaps</div><div class="value" id="reportGaps">0</div><div class="sub">Priority gaps identified</div></div><div class="card kpi"><div class="label">Active PIPs</div><div class="value" id="reportPips">0</div><div class="sub">Manager-visible PIPs</div></div></div>
+  <div class="grid two">
+    <div class="card"><div class="section-head"><div><h2>Performance by employee</h2><p>Simple management view of latest ratings.</p></div><button class="btn" id="exportTeamBtn">Export CSV</button></div><div class="chart" id="performanceChart"></div></div>
+    <div class="card"><div class="section-head"><div><h2>Skill gap report</h2><p>Required level vs assessed level.</p></div></div><div id="skillGapList" class="metric-list"></div></div>
+  </div>
+  <div class="card" style="margin-top:16px"><div class="section-head"><div><h2>Report actions</h2><p>Generate or print a manager report for your team.</p></div><div class="toolbar"><button class="btn" id="generateReportBtn">Generate report</button><button class="btn" id="printReportBtn">Print</button></div></div><div id="reportOutput" class="notice">No report generated yet. Generate a report to see a summary of team performance, development, review completion and PIP status.</div></div>
+</section>
+
+<section class="page" id="page-personal">
+  <div class="grid two">
+    <div class="card"><div class="profile-card"><div class="profile-avatar">KS</div><div><h2 style="margin:0 0 5px">Kavindu Silva</h2><p class="muted" style="margin:0;font-size:12px">Engineering Manager · Engineering</p></div></div><div class="detail-grid" style="margin-top:18px"><div class="detail-box"><small>Latest rating</small><strong>4.2 / 5</strong></div><div class="detail-box"><small>Goals</small><strong>3 active</strong></div><div class="detail-box"><small>PDP progress</small><strong>67%</strong></div></div></div>
+    <div class="card"><div class="section-head"><div><h2>My review tasks</h2><p>Complete your own self-review and peer feedback alongside manager responsibilities.</p></div></div><div class="checklist"><label class="check-row"><input type="checkbox" checked disabled> H1 self-review submitted</label><label class="check-row"><input type="checkbox"> Complete peer feedback for assigned colleague</label><label class="check-row"><input type="checkbox"> Review your active PDP actions</label></div></div>
+  </div>
+  <div class="grid three" style="margin-top:16px"><div class="card"><div class="section-head"><div><h2>My goals</h2><p>Personal goals stored in the database.</p></div><button class="btn primary" id="personalGoalBtn">+ Goal</button></div><div id="personalGoals"></div></div><div class="card"><div class="section-head"><div><h2>My development</h2><p>Personal PDP actions and progress.</p></div></div><div id="personalPdp" class="activity"></div></div><div class="card"><div class="section-head"><div><h2>My 360° feedback</h2><p>Aggregated feedback with identities hidden.</p></div></div><div id="personalFeedback" class="metric-list"></div></div></div>
+</section>
+
+<section class="page" id="page-notifications">
+  <div class="card"><div class="section-head"><div><h2>Notifications</h2><p>Review deadlines, feedback requests and development reminders.</p></div><button class="btn" id="markNotifications">Mark all read</button></div><div id="notificationsList" class="activity"></div></div>
+</section>
+</main>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop"><div class="modal"><div class="modal-head"><h3 id="modalTitle">Action</h3><button class="close" id="modalClose">×</button></div><div class="modal-body" id="modalBody"></div><div class="modal-foot" id="modalFoot"></div></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+let data={employees:[],peerNominations:[],goals:[],pdps:[],pips:[],notifications:[],feedback:{},managerRatings:{},competencies:[],hrOwners:[],personal:{},manager:{}};
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function initials(name){return String(name||'').split(' ').map(x=>x[0]).slice(0,2).join('')}
+function esc(s){return String(s??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]))}
+function statusClass(s){s=String(s).toLowerCase();if(s.includes('complete')||s.includes('approved')||s.includes('submitted')||s==='on track'||s==='successful')return'green';if(s.includes('progress')||s.includes('pending')||s.includes('not started')||s.includes('active'))return'amber';if(s.includes('reject')||s.includes('overdue')||s.includes('unsuccessful'))return'red';return'blue'}
+function toast(msg){const t=$('#toast');if(!t)return;t.textContent=msg;t.classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>t.classList.remove('show'),2400)}
+const pageMeta={overview:['Manager Dashboard','Monitor team performance, development and review progress.'],team:['My Team','View direct reports and take employee performance actions.'],reviews:['Reviews & Feedback','Complete manager reviews, approve peers and inspect anonymous 360° feedback.'],goals:['Goals & PDPs','Create goals, approve progress and manage personal development actions.'],pips:['Performance Improvement','Manage measurable PIPs and record progress check-ins.'],reports:['Reports & Insights','Use team performance, skill-gap and development reporting.'],personal:['My Dashboard','Your own performance, goals, development and feedback.'],notifications:['Notifications','Review deadlines, feedback requests and development reminders.']};
+function showPage(page){$$('.nav-btn[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$$('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+page));$('#pageTitle').textContent=pageMeta[page][0];$('#pageSubtitle').textContent=pageMeta[page][1];window.scrollTo({top:0,behavior:'smooth'});if(typeof renderAll==='function')renderAll()}
+$$('.nav-btn[data-page]').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
+$$('[data-page-jump]').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.pageJump)));
+$$('.tab').forEach(btn=>btn.addEventListener('click',()=>{const wrap=btn.closest('.card');wrap.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));wrap.querySelectorAll('.tab-panel').forEach(x=>x.classList.remove('active'));btn.classList.add('active');const target=wrap.querySelector('#'+btn.dataset.tab);if(target)target.classList.add('active')}));
+function openModal(title,body,foot){$('#modalTitle').textContent=title;$('#modalBody').innerHTML=body;$('#modalFoot').innerHTML=foot;$('#modalBackdrop').classList.add('open')}
+function closeModal(){$('#modalBackdrop').classList.remove('open')}
+$('#modalClose').onclick=closeModal;
+$('#modalBackdrop').addEventListener('click',e=>{if(e.target.id==='modalBackdrop')closeModal()});
+</script>
+<script src="Js/manager-db.js"></script>
+<script src="Js/auth.js" data-roles="manager"></script>
+</body>
+</html>
