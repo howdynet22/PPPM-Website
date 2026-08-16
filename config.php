@@ -1,10 +1,12 @@
 <?php
 declare(strict_types=1);
 
-const DB_HOST = '127.0.0.1';
-const DB_NAME = 'perf_tracker';
-const DB_USER = 'root';
-const DB_PASS = '';
+define('DB_HOST', getenv('PPPM_DB_HOST') ?: '127.0.0.1');
+define('DB_NAME', getenv('PPPM_DB_NAME') ?: 'perf_tracker');
+define('DB_USER', getenv('PPPM_DB_USER') ?: 'root');
+define('DB_PASS', getenv('PPPM_DB_PASS') ?: '');
+define('APP_DEBUG', filter_var(getenv('PPPM_APP_DEBUG') ?: 'false', FILTER_VALIDATE_BOOLEAN));
+define('SESSION_IDLE_TIMEOUT', 1800);
 
 function db(): PDO {
     static $pdo = null;
@@ -22,35 +24,95 @@ function db(): PDO {
     return $pdo;
 }
 
+function is_https(): bool {
+    return !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+}
+
+function start_app_session(): void {
+    if (session_status() === PHP_SESSION_ACTIVE) return;
+    ini_set('session.use_strict_mode', '1');
+    session_name('PPPMSESSID');
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/',
+        'secure' => is_https(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    session_start();
+}
+
+function destroy_app_session(): void {
+    $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', [
+            'expires' => time() - 42000,
+            'path' => $params['path'],
+            'domain' => $params['domain'],
+            'secure' => $params['secure'],
+            'httponly' => $params['httponly'],
+            'samesite' => $params['samesite'] ?? 'Lax',
+        ]);
+    }
+    if (session_status() === PHP_SESSION_ACTIVE) session_destroy();
+}
+
 function json_response(array $payload, int $status = 200): never {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: no-referrer');
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
 function require_method(string $method): void {
-    if ($_SERVER['REQUEST_METHOD'] !== $method) {
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== $method) {
+        header('Allow: ' . $method);
         json_response(['ok' => false, 'error' => 'Method not allowed'], 405);
     }
 }
 
 function input(): array {
+    $contentLength = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
+    if ($contentLength > 1_000_000) json_response(['ok' => false, 'error' => 'Request is too large'], 413);
     $raw = file_get_contents('php://input');
     if (!$raw) return $_POST ?: [];
     $data = json_decode($raw, true);
-    return is_array($data) ? $data : [];
+    if (!is_array($data)) json_response(['ok' => false, 'error' => 'Invalid JSON request'], 400);
+    return $data;
+}
+
+function csrf_token(): string {
+    start_app_session();
+    if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    return (string)$_SESSION['csrf_token'];
+}
+
+function require_csrf(): void {
+    $provided = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    if ($provided === '' || !hash_equals(csrf_token(), $provided)) {
+        json_response(['ok' => false, 'error' => 'Security token is missing or expired. Refresh the page and try again.'], 403);
+    }
 }
 
 function require_login(): array {
-    if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+    start_app_session();
     if (empty($_SESSION['user_id'])) json_response(['ok' => false, 'error' => 'Not authenticated'], 401);
+    $lastActivity = (int)($_SESSION['last_activity'] ?? time());
+    if (time() - $lastActivity > SESSION_IDLE_TIMEOUT) {
+        destroy_app_session();
+        json_response(['ok' => false, 'error' => 'Your session has expired'], 401);
+    }
+    $_SESSION['last_activity'] = time();
     $stmt = db()->prepare("SELECT u.id, u.emp_code, u.full_name, u.email, u.role, u.job_title, u.department, r.display_name AS role_name, r.dashboard_path FROM users u JOIN roles r ON r.role_code=u.role WHERE u.id = ? AND u.is_active = 1 AND r.is_active = 1");
     $stmt->execute([(int)$_SESSION['user_id']]);
     $user = $stmt->fetch();
     if (!$user) {
-        $_SESSION = [];
-        session_destroy();
+        destroy_app_session();
         json_response(['ok' => false, 'error' => 'User account not found'], 401);
     }
     $_SESSION['role'] = $user['role'];
@@ -78,9 +140,14 @@ function require_permission(string $permission): array {
     return $user;
 }
 
+function client_ip(): ?string {
+    $ip = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+    return $ip === '' ? null : substr($ip, 0, 45);
+}
+
 function audit(int $userId, string $action, ?string $entityType = null, ?int $entityId = null, ?string $detail = null): void {
     $stmt = db()->prepare("INSERT INTO audit_log (user_id, action, entity_type, entity_id, detail, ip_address) VALUES (?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$userId, $action, $entityType, $entityId, $detail, $_SERVER['REMOTE_ADDR'] ?? null]);
+    $stmt->execute([$userId, $action, $entityType, $entityId, $detail, client_ip()]);
 }
 
 function manager_employee(int $managerId, int $employeeId): bool {
@@ -90,7 +157,14 @@ function manager_employee(int $managerId, int $employeeId): bool {
 }
 
 function participant_for_manager(int $managerId, int $participantId): ?array {
-    $stmt = db()->prepare("SELECT * FROM review_participants WHERE id = ? AND manager_id = ?");
+    $stmt = db()->prepare("SELECT rp.*, rc.status AS cycle_status FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id WHERE rp.id = ? AND rp.manager_id = ?");
     $stmt->execute([$participantId, $managerId]);
     return $stmt->fetch() ?: null;
+}
+
+function valid_date(string $value): bool {
+    if ($value === '') return false;
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+    $errors = DateTimeImmutable::getLastErrors();
+    return $date !== false && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0)) && $date->format('Y-m-d') === $value;
 }

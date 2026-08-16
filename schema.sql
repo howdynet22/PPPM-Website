@@ -87,6 +87,27 @@ CREATE TABLE users (
 -- menus you see; manager_id controls WHOSE data you can see. A manager can
 -- only ever open reviews of people whose manager_id = their own id.
 
+-- Authentication throttling. Successful and failed attempts are retained so
+-- repeated failures can be limited without revealing whether an account exists.
+CREATE TABLE login_attempts (
+    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    email        VARCHAR(120) NOT NULL,
+    ip_address   VARCHAR(45) NOT NULL,
+    success      TINYINT(1) NOT NULL DEFAULT 0,
+    attempted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_login_email_time (email, attempted_at),
+    INDEX idx_login_ip_time (ip_address, attempted_at)
+);
+
+-- Computed dashboard notifications remain read when the manager refreshes.
+CREATE TABLE notification_reads (
+    user_id          INT NOT NULL,
+    notification_key VARCHAR(80) NOT NULL,
+    read_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, notification_key),
+    CONSTRAINT fk_notification_user FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
 -- Every sensitive action is written here. This is how you prove to HR/law
 -- that nobody snooped. Marks are usually given for having this.
 CREATE TABLE audit_log (
@@ -141,6 +162,7 @@ CREATE TABLE employee_skills (
     assessed_at   DATE,
     CONSTRAINT fk_es_emp   FOREIGN KEY (employee_id) REFERENCES users(id),
     CONSTRAINT fk_es_skill FOREIGN KEY (skill_id)    REFERENCES skills(id),
+    CONSTRAINT fk_es_assessor FOREIGN KEY (assessed_by) REFERENCES users(id),
     UNIQUE KEY uq_emp_skill (employee_id, skill_id)
 );
 
@@ -159,10 +181,11 @@ CREATE TABLE review_cycles (
     status               ENUM('draft','open','peer_review','manager_review',
                               'calibration','released','closed')
                          NOT NULL DEFAULT 'draft',
-    min_peers            TINYINT DEFAULT 3,       -- anonymity threshold
+    min_peers            TINYINT NOT NULL DEFAULT 3 CHECK (min_peers >= 3),
     created_by           INT,
     released_at          DATETIME NULL,
-    CONSTRAINT fk_cycle_creator FOREIGN KEY (created_by) REFERENCES users(id)
+    CONSTRAINT fk_cycle_creator FOREIGN KEY (created_by) REFERENCES users(id),
+    CONSTRAINT chk_cycle_dates CHECK (period_end >= period_start)
 );
 -- The status column IS the workflow. Nothing is visible to the employee
 -- until status = 'released'. This single rule is the heart of the system.
@@ -176,7 +199,7 @@ CREATE TABLE review_participants (
     status          ENUM('not_started','self_submitted','peers_complete',
                          'manager_submitted','released')
                     NOT NULL DEFAULT 'not_started',
-    final_rating    DECIMAL(3,2) NULL,   -- e.g. 3.75
+    final_rating    DECIMAL(3,2) NULL CHECK (final_rating BETWEEN 1 AND 5),
     manager_summary TEXT NULL,
     released_at     DATETIME NULL,
     CONSTRAINT fk_rp_cycle FOREIGN KEY (cycle_id)    REFERENCES review_cycles(id),
@@ -197,6 +220,8 @@ CREATE TABLE peer_nominations (
     created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_pn_part FOREIGN KEY (participant_id) REFERENCES review_participants(id),
     CONSTRAINT fk_pn_peer FOREIGN KEY (peer_id)        REFERENCES users(id),
+    CONSTRAINT fk_pn_nominator FOREIGN KEY (nominated_by) REFERENCES users(id),
+    CONSTRAINT fk_pn_decider FOREIGN KEY (decided_by) REFERENCES users(id),
     UNIQUE KEY uq_part_peer (participant_id, peer_id)
 );
 
@@ -280,7 +305,7 @@ CREATE TABLE pdp_actions (
     due_date     DATE NOT NULL,
     status       ENUM('not_started','in_progress','completed','overdue','cancelled')
                  DEFAULT 'not_started',
-    progress_pct TINYINT DEFAULT 0,
+    progress_pct TINYINT DEFAULT 0 CHECK (progress_pct BETWEEN 0 AND 100),
     completed_at DATETIME NULL,
     CONSTRAINT fk_pa_pdp   FOREIGN KEY (pdp_id)   REFERENCES pdps(id),
     CONSTRAINT fk_pa_skill FOREIGN KEY (skill_id) REFERENCES skills(id)
@@ -315,7 +340,8 @@ CREATE TABLE pips (
     outcome_note TEXT,
     CONSTRAINT fk_pip_emp FOREIGN KEY (employee_id) REFERENCES users(id),
     CONSTRAINT fk_pip_mgr FOREIGN KEY (manager_id)  REFERENCES users(id),
-    CONSTRAINT fk_pip_hr  FOREIGN KEY (hr_owner_id) REFERENCES users(id)
+    CONSTRAINT fk_pip_hr  FOREIGN KEY (hr_owner_id) REFERENCES users(id),
+    CONSTRAINT chk_pip_dates CHECK (end_date >= start_date)
 );
 
 CREATE TABLE pip_objectives (
