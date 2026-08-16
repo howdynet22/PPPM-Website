@@ -4,13 +4,17 @@
   let currentUser = null;
 
   async function request(action, options = {}) {
+    const method = String(options.method || 'GET').toUpperCase();
+    const headers = {'Content-Type': 'application/json', ...(options.headers || {})};
+    if (method !== 'GET' && window.currentCsrfToken) headers['X-CSRF-Token'] = window.currentCsrfToken;
     const response = await fetch(API + action, {
       credentials: 'same-origin',
-      headers: {'Content-Type': 'application/json', ...(options.headers || {})},
-      ...options
+      ...options,
+      headers
     });
     const result = await response.json().catch(() => ({ok:false,error:'Invalid server response'}));
     if (!result.ok) throw new Error(result.error || 'Request failed');
+    if (result.csrfToken) window.currentCsrfToken = result.csrfToken;
     return result;
   }
 
@@ -69,8 +73,8 @@
         <form id="changePasswordForm">
           <div class="auth-body">
             <div class="auth-field"><label for="currentPassword">Current password</label><input id="currentPassword" type="password" autocomplete="current-password" required></div>
-            <div class="auth-field"><label for="newPassword">New password</label><input id="newPassword" type="password" autocomplete="new-password" minlength="8" required><small style="display:block;margin-top:5px;color:#6b7280;font:11px Arial">Minimum 8 characters.</small></div>
-            <div class="auth-field"><label for="confirmPassword">Confirm new password</label><input id="confirmPassword" type="password" autocomplete="new-password" minlength="8" required></div>
+            <div class="auth-field"><label for="newPassword">New password</label><input id="newPassword" type="password" autocomplete="new-password" minlength="10" required><small style="display:block;margin-top:5px;color:#6b7280;font:11px Arial">At least 10 characters with uppercase, lowercase and a number.</small></div>
+            <div class="auth-field"><label for="confirmPassword">Confirm new password</label><input id="confirmPassword" type="password" autocomplete="new-password" minlength="10" required></div>
             <div id="passwordMessage" class="auth-message"></div>
           </div>
           <div class="auth-foot"><button type="button" class="auth-secondary" id="cancelPassword">Cancel</button><button type="submit" class="auth-primary">Change password</button></div>
@@ -81,6 +85,7 @@
     document.getElementById('closePasswordModal').onclick = close;
     document.getElementById('cancelPassword').onclick = close;
     modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    modal.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
     document.getElementById('changePasswordForm').addEventListener('submit', async e => {
       e.preventDefault();
       const msg = document.getElementById('passwordMessage');
@@ -149,6 +154,7 @@
     try {
       const result = await request('me');
       const user = result.user;
+      window.currentCsrfToken = result.csrfToken || window.currentCsrfToken || '';
       if (allowed.length && !allowed.includes(user.role)) {
         window.location.href = user.dashboard_path || 'index.html';
         return;

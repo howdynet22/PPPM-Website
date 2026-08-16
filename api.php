@@ -2,14 +2,7 @@
 declare(strict_types=1);
 require __DIR__ . '/config.php';
 
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_set_cookie_params([
-        'httponly' => true,
-        'samesite' => 'Lax',
-        'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
-    ]);
-    session_start();
-}
+start_app_session();
 $action = $_GET['action'] ?? '';
 
 try {
@@ -17,45 +10,67 @@ try {
         case 'login':
             require_method('POST');
             $in = input();
-            $email = trim((string)($in['email'] ?? ''));
+            $email = strtolower(trim((string)($in['email'] ?? '')));
             $password = (string)($in['password'] ?? '');
             if ($email === '' || $password === '') json_response(['ok'=>false,'error'=>'Email and password are required'], 422);
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 120) json_response(['ok'=>false,'error'=>'Enter a valid email address'],422);
+            $ip = client_ip() ?? 'unknown';
+            $attempts = db()->prepare("SELECT COUNT(*) FROM login_attempts WHERE success=0 AND attempted_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE) AND email=?");
+            $attempts->execute([$email]);
+            $emailFailures=(int)$attempts->fetchColumn();
+            $attempts = db()->prepare("SELECT COUNT(*) FROM login_attempts WHERE success=0 AND attempted_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE) AND ip_address=?");
+            $attempts->execute([$ip]);
+            $ipFailures=(int)$attempts->fetchColumn();
+            if ($emailFailures >= 5 || $ipFailures >= 25) {
+                header('Retry-After: 900');
+                json_response(['ok'=>false,'error'=>'Too many failed sign-in attempts. Try again in 15 minutes.'],429);
+            }
             $stmt = db()->prepare("SELECT u.id, u.emp_code, u.full_name, u.email, u.password_hash, u.role, u.job_title, u.department, r.display_name AS role_name, r.dashboard_path FROM users u JOIN roles r ON r.role_code = u.role WHERE u.email = ? AND u.is_active = 1 AND r.is_active = 1 LIMIT 1");
             $stmt->execute([$email]);
             $user = $stmt->fetch();
-            if (!$user || !password_verify($password, $user['password_hash'])) json_response(['ok'=>false,'error'=>'Invalid email or password'], 401);
+            if (!$user || !password_verify($password, $user['password_hash'])) {
+                db()->prepare("INSERT INTO login_attempts(email,ip_address,success) VALUES(?,?,0)")->execute([$email,$ip]);
+                json_response(['ok'=>false,'error'=>'Invalid email or password'], 401);
+            }
             session_regenerate_id(true);
             $_SESSION['user_id'] = (int)$user['id'];
             $_SESSION['role'] = $user['role'];
+            $_SESSION['last_activity'] = time();
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+            db()->prepare("DELETE FROM login_attempts WHERE email=? AND success=0")->execute([$email]);
+            db()->exec("DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 30 DAY)");
+            db()->prepare("INSERT INTO login_attempts(email,ip_address,success) VALUES(?,?,1)")->execute([$email,$ip]);
             unset($user['password_hash']);
             $user['permissions'] = permissions_for_role($user['role']);
             audit((int)$user['id'],'LOGIN','user',(int)$user['id'],'Successful login');
-            json_response(['ok'=>true,'user'=>$user]);
+            json_response(['ok'=>true,'user'=>$user,'csrfToken'=>csrf_token()]);
 
         case 'logout':
             require_method('POST');
-            $_SESSION = [];
-            if (ini_get('session.use_cookies')) {
-                $params = session_get_cookie_params();
-                setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+            require_csrf();
+            $userId = (int)($_SESSION['user_id'] ?? 0);
+            if ($userId > 0) {
+                try { audit($userId,'LOGOUT','user',$userId,'User signed out'); } catch (Throwable $ignored) {}
             }
-            session_destroy();
+            destroy_app_session();
             json_response(['ok'=>true]);
 
         case 'me':
+            require_method('GET');
             $user = require_login();
             $user['permissions'] = permissions_for_role($user['role']);
-            json_response(['ok'=>true,'user'=>$user]);
+            json_response(['ok'=>true,'user'=>$user,'csrfToken'=>csrf_token()]);
 
         case 'change_password':
             require_method('POST');
-            $user = require_login();
+            require_csrf();
+            $user = require_permission('password.change');
             $in = input();
             $current = (string)($in['currentPassword'] ?? '');
             $new = (string)($in['newPassword'] ?? '');
             $confirm = (string)($in['confirmPassword'] ?? '');
             if ($current === '' || $new === '' || $confirm === '') json_response(['ok'=>false,'error'=>'All password fields are required'],422);
-            if (strlen($new) < 8) json_response(['ok'=>false,'error'=>'New password must be at least 8 characters'],422);
+            if (strlen($new) < 10 || !preg_match('/[a-z]/',$new) || !preg_match('/[A-Z]/',$new) || !preg_match('/\d/',$new)) json_response(['ok'=>false,'error'=>'New password must be at least 10 characters and include uppercase, lowercase and a number'],422);
             if ($new !== $confirm) json_response(['ok'=>false,'error'=>'New passwords do not match'],422);
             if ($current === $new) json_response(['ok'=>false,'error'=>'New password must be different from the current password'],422);
             $stmt = db()->prepare('SELECT password_hash FROM users WHERE id = ? AND is_active = 1');
@@ -64,13 +79,21 @@ try {
             if (!$row || !password_verify($current, $row['password_hash'])) json_response(['ok'=>false,'error'=>'Current password is incorrect'],401);
             $hash = password_hash($new, PASSWORD_DEFAULT);
             db()->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([$hash,(int)$user['id']]);
+            session_regenerate_id(true);
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
             audit((int)$user['id'],'CHANGE_PASSWORD','user',(int)$user['id'],'Password changed');
-            json_response(['ok'=>true,'message'=>'Password changed successfully']);
+            json_response(['ok'=>true,'message'=>'Password changed successfully','csrfToken'=>csrf_token()]);
 
         case 'dashboard':
+            require_method('GET');
             $manager = require_permission('manager.dashboard');
+            $manager['permissions'] = permissions_for_role($manager['role']);
             $pdo = db();
             $mid = (int)$manager['id'];
+            if (empty($_SESSION['manager_dashboard_audited'])) {
+                audit($mid,'VIEW_MANAGER_DASHBOARD','dashboard',null,'Opened manager dashboard');
+                $_SESSION['manager_dashboard_audited']=true;
+            }
 
             $stmt = $pdo->prepare("SELECT id, full_name AS name, job_title AS role, email, department FROM users WHERE manager_id = ? AND role = 'employee' AND is_active = 1 ORDER BY full_name");
             $stmt->execute([$mid]);
@@ -78,12 +101,15 @@ try {
 
             foreach ($employees as &$e) {
                 $eid = (int)$e['id'];
-                $stmt = $pdo->prepare("SELECT rp.id participant_id, rp.cycle_id, rc.name cycle_name, rp.status review_status, rp.final_rating rating, rp.manager_summary FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id WHERE rp.employee_id=? AND rp.manager_id=? ORDER BY rp.id DESC LIMIT 1");
+                $stmt = $pdo->prepare("SELECT rp.id participant_id, rp.cycle_id, rc.name cycle_name, rc.manager_deadline, rp.status review_status, rp.final_rating rating, rp.manager_summary FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id WHERE rp.employee_id=? AND rp.manager_id=? ORDER BY rp.id DESC LIMIT 1");
                 $stmt->execute([$eid,$mid]);
                 $review = $stmt->fetch() ?: null;
                 $e['participantId'] = $review['participant_id'] ?? null;
                 $e['cycleId'] = $review['cycle_id'] ?? null;
                 $e['cycle'] = $review['cycle_name'] ?? 'No review cycle';
+                $e['managerDeadline'] = $review['manager_deadline'] ?? null;
+                $e['reviewStatusCode'] = $review['review_status'] ?? 'not_started';
+                $e['managerSummary'] = $review['manager_summary'] ?? '';
                 $e['review'] = match($review['review_status'] ?? 'not_started') {
                     'self_submitted' => 'Self submitted',
                     'peers_complete' => 'Peers complete',
@@ -91,19 +117,22 @@ try {
                     'released' => 'Released',
                     default => 'Not started'
                 };
-                $e['rating'] = $review['rating'] !== null ? (float)$review['rating'] : null;
+                $e['rating'] = $review !== null && $review['rating'] !== null ? (float)$review['rating'] : null;
                 $stmt = $pdo->prepare("SELECT COUNT(*) FROM goals WHERE employee_id=? AND manager_id=?");
                 $stmt->execute([$eid,$mid]);
                 $e['goals'] = (int)$stmt->fetchColumn();
-                $stmt = $pdo->prepare("SELECT COALESCE(ROUND(AVG(pa.progress_pct),0),0) FROM pdp_actions pa JOIN pdps p ON p.id=pa.pdp_id WHERE p.employee_id=? AND p.manager_id=? AND pa.status <> 'cancelled'");
+                $stmt = $pdo->prepare("SELECT COUNT(*) action_count, COALESCE(ROUND(AVG(pa.progress_pct),0),0) progress FROM pdp_actions pa JOIN pdps p ON p.id=pa.pdp_id WHERE p.employee_id=? AND p.manager_id=? AND pa.status <> 'cancelled'");
                 $stmt->execute([$eid,$mid]);
-                $e['pdp'] = (int)$stmt->fetchColumn();
+                $pdp = $stmt->fetch();
+                $e['pdpActionCount'] = (int)$pdp['action_count'];
+                $e['pdp'] = (int)$pdp['progress'];
                 $stmt = $pdo->prepare("SELECT s.name, r.required_level, COALESCE(es.current_level,0) current_level FROM role_skill_requirements r JOIN skills s ON s.id=r.skill_id LEFT JOIN employee_skills es ON es.employee_id=? AND es.skill_id=r.skill_id WHERE r.job_title=? ORDER BY (r.required_level-COALESCE(es.current_level,0)) DESC, s.name");
                 $stmt->execute([$eid,$e['role']]);
                 $skills = [];
                 foreach ($stmt->fetchAll() as $s) $skills[] = [$s['name'], (int)$s['required_level'], (int)$s['current_level']];
                 $e['skills'] = $skills;
-                $e['attention'] = (($e['rating'] !== null && $e['rating'] < 3.5) || $e['review'] !== 'Manager submitted' || $e['pdp'] < 50 || count(array_filter($skills, fn($s)=>$s[2]<$s[1])) > 0);
+                $reviewNeedsAction = !in_array($e['reviewStatusCode'], ['manager_submitted','released'], true);
+                $e['attention'] = (($e['rating'] !== null && $e['rating'] < 3.5) || $reviewNeedsAction || ($e['pdpActionCount'] > 0 && $e['pdp'] < 50) || count(array_filter($skills, fn($s)=>$s[2]<$s[1])) > 0);
             }
             unset($e);
 
@@ -113,8 +142,8 @@ try {
                 'id'=>(int)$r['id'], 'employeeId'=>(int)$r['employee_id'], 'employee'=>$r['employee'], 'peerId'=>(int)$r['peer_id'], 'peer'=>$r['peer'], 'status'=>$r['status']
             ], $stmt->fetchAll());
 
-            $stmt = $pdo->prepare("SELECT g.id,g.employee_id, u.full_name employee,g.title,g.description target,g.due_date due,g.progress_pct progress,g.status FROM goals g JOIN users u ON u.id=g.employee_id WHERE g.manager_id=? ORDER BY g.due_date");
-            $stmt->execute([$mid]);
+            $stmt = $pdo->prepare("SELECT g.id,g.employee_id, u.full_name employee,g.title,g.description target,g.due_date due,g.progress_pct progress,g.status FROM goals g JOIN users u ON u.id=g.employee_id WHERE g.manager_id=? AND g.employee_id<>? ORDER BY g.due_date");
+            $stmt->execute([$mid,$mid]);
             $goals = array_map(fn($r)=>[
                 'id'=>(int)$r['id'],'employeeId'=>(int)$r['employee_id'],'employee'=>$r['employee'],'title'=>$r['title'],'target'=>$r['target'],'due'=>$r['due'],'progress'=>(int)$r['progress'],'status'=>ucwords(str_replace('_',' ',$r['status']))
             ], $stmt->fetchAll());
@@ -159,85 +188,125 @@ try {
             $hrOwners=array_map(fn($r)=>['id'=>(int)$r['id'],'name'=>$r['name']],$s->fetchAll());
 
             // Manager's own personal dashboard: latest review, own goals and PDP actions.
-            $s=$pdo->prepare("SELECT rp.id participant_id,rc.name cycle,rp.status,rp.final_rating,rp.manager_summary FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id WHERE rp.employee_id=? ORDER BY rp.id DESC LIMIT 1"); $s->execute([$mid]); $ownReview=$s->fetch() ?: null;
+            $s=$pdo->prepare("SELECT rp.id participant_id,rc.name cycle,rc.min_peers,rp.status,rp.final_rating,rp.manager_summary FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id WHERE rp.employee_id=? ORDER BY rp.id DESC LIMIT 1"); $s->execute([$mid]); $ownReview=$s->fetch() ?: null;
+            $ownReviewReleased=$ownReview !== null && $ownReview['status']==='released';
+            if($ownReview && !$ownReviewReleased){$ownReview['final_rating']=null;$ownReview['manager_summary']=null;}
             $s=$pdo->prepare("SELECT id,title,description target,due_date due,progress_pct progress,status FROM goals WHERE employee_id=? ORDER BY due_date"); $s->execute([$mid]); $ownGoals=array_map(fn($r)=>['id'=>(int)$r['id'],'title'=>$r['title'],'target'=>$r['target'],'due'=>$r['due'],'progress'=>(int)$r['progress'],'status'=>ucwords(str_replace('_',' ',$r['status']))],$s->fetchAll());
             $s=$pdo->prepare("SELECT pa.id,pa.title,pa.due_date due,pa.progress_pct progress,pa.status FROM pdp_actions pa JOIN pdps p ON p.id=pa.pdp_id WHERE p.employee_id=? ORDER BY pa.due_date"); $s->execute([$mid]); $ownPdp=array_map(fn($r)=>['id'=>(int)$r['id'],'title'=>$r['title'],'due'=>$r['due'],'progress'=>(int)$r['progress'],'status'=>ucwords(str_replace('_',' ',$r['status']))],$s->fetchAll());
             $ownFeedback=[];
-            if ($ownReview) { $s=$pdo->prepare("SELECT competency,avg_score,responses FROM v_360_summary WHERE participant_id=? ORDER BY competency,type"); $s->execute([(int)$ownReview['participant_id']]); $ownFeedback=$s->fetchAll(); }
+            $ownFeedbackMeta=['available'=>false,'released'=>$ownReviewReleased,'responses'=>0,'required'=>(int)($ownReview['min_peers'] ?? 3)];
+            if ($ownReviewReleased) {
+                $s=$pdo->prepare("SELECT COUNT(*) FROM feedback_requests WHERE participant_id=? AND type='peer' AND status='submitted'");
+                $s->execute([(int)$ownReview['participant_id']]);
+                $ownFeedbackMeta['responses']=(int)$s->fetchColumn();
+                $ownFeedbackMeta['available']=$ownFeedbackMeta['responses'] >= $ownFeedbackMeta['required'];
+                if ($ownFeedbackMeta['available']) {
+                    $s=$pdo->prepare("SELECT competency,avg_score,responses FROM v_360_summary WHERE participant_id=? AND type='peer' ORDER BY competency");
+                    $s->execute([(int)$ownReview['participant_id']]);
+                    $ownFeedback=$s->fetchAll();
+                }
+            }
 
             $notifications=[];
             foreach ($employees as $e) {
-                if ($e['review'] !== 'Manager submitted') $notifications[]=['id'=>'review-'.$e['id'],'text'=>'Manager review is pending for '.$e['name'].'.','time'=>'Current review cycle','unread'=>true];
+                if (!in_array($e['reviewStatusCode'],['manager_submitted','released'],true)) $notifications[]=['id'=>'review-'.$e['id'],'text'=>'Manager review is pending for '.$e['name'].'.','time'=>'Current review cycle','unread'=>true];
             }
             foreach ($peerNominations as $n) if ($n['status']==='pending') $notifications[]=['id'=>'peer-'.$n['id'],'text'=>'A peer nomination requires approval for '.$n['employee'].'.','time'=>'Current review cycle','unread'=>true];
             foreach ($pdps as $p) if ($p['due'] <= date('Y-m-d', strtotime('+14 days')) && $p['status'] !== 'Completed') $notifications[]=['id'=>'pdp-'.$p['id'],'text'=>'PDP action for '.$p['employee'].' is due soon.','time'=>$p['due'],'unread'=>true];
+            $s=$pdo->prepare("SELECT notification_key FROM notification_reads WHERE user_id=?");
+            $s->execute([$mid]);
+            $readKeys=array_flip(array_column($s->fetchAll(),'notification_key'));
+            foreach ($notifications as &$notification) $notification['unread']=!isset($readKeys[$notification['id']]);
+            unset($notification);
 
-            json_response(['ok'=>true,'manager'=>$manager,'employees'=>$employees,'peerNominations'=>$peerNominations,'goals'=>$goals,'pdps'=>$pdps,'pips'=>$pips,'feedback'=>$feedback,'managerRatings'=>$managerRatings,'competencies'=>$competencies,'hrOwners'=>$hrOwners,'notifications'=>$notifications,'personal'=>['review'=>$ownReview,'goals'=>$ownGoals,'pdp'=>$ownPdp,'feedback'=>$ownFeedback]]);
+            json_response(['ok'=>true,'manager'=>$manager,'employees'=>$employees,'peerNominations'=>$peerNominations,'goals'=>$goals,'pdps'=>$pdps,'pips'=>$pips,'feedback'=>$feedback,'managerRatings'=>$managerRatings,'competencies'=>$competencies,'hrOwners'=>$hrOwners,'notifications'=>$notifications,'personal'=>['review'=>$ownReview,'goals'=>$ownGoals,'pdp'=>$ownPdp,'feedback'=>$ownFeedback,'feedbackMeta'=>$ownFeedbackMeta],'csrfToken'=>csrf_token()]);
 
         case 'submit_review':
+            require_method('POST'); require_csrf();
             $manager=require_permission('manager.reviews'); $in=input(); $participantId=(int)($in['participantId']??0); $participant=participant_for_manager((int)$manager['id'],$participantId); if(!$participant) json_response(['ok'=>false,'error'=>'Review is not assigned to you'],403);
+            if ($participant['cycle_status'] !== 'manager_review') json_response(['ok'=>false,'error'=>'This review cycle is not accepting manager reviews'],409);
+            if (!in_array($participant['status'],['self_submitted','peers_complete','manager_submitted'],true)) json_response(['ok'=>false,'error'=>'The employee self-review must be submitted first'],409);
             $rating=(float)($in['rating']??0); if($rating<1||$rating>5) json_response(['ok'=>false,'error'=>'Rating must be between 1 and 5'],422);
-            $summary=trim((string)($in['summary']??'')); if($summary==='') json_response(['ok'=>false,'error'=>'Manager summary is required'],422);
+            $summary=trim((string)($in['summary']??'')); if($summary==='' || strlen($summary)>5000) json_response(['ok'=>false,'error'=>'Manager summary is required and must be under 5,000 characters'],422);
+            $competencyRatings=$in['competencies']??[];if(!is_array($competencyRatings))json_response(['ok'=>false,'error'=>'Competency ratings are required'],422);$activeIds=array_map('intval',db()->query("SELECT id FROM competencies WHERE is_active=1 ORDER BY id")->fetchAll(PDO::FETCH_COLUMN));$submittedIds=[];foreach($competencyRatings as $c){$cid=(int)($c['competencyId']??0);$score=(int)($c['score']??0);if($cid<1||$score<1||$score>5)json_response(['ok'=>false,'error'=>'Every active competency requires a score from 1 to 5'],422);$submittedIds[]=$cid;}sort($submittedIds);if($submittedIds!==$activeIds)json_response(['ok'=>false,'error'=>'Every active competency must be rated exactly once'],422);
             $pdo=db(); $pdo->beginTransaction();
             $stmt=$pdo->prepare("UPDATE review_participants SET final_rating=?, manager_summary=?, status='manager_submitted' WHERE id=? AND manager_id=?"); $stmt->execute([$rating,$summary,$participantId,$manager['id']]);
             $stmt=$pdo->prepare("SELECT id FROM feedback_requests WHERE participant_id=? AND respondent_id=? AND type='manager' LIMIT 1"); $stmt->execute([$participantId,$manager['id']]); $req=$stmt->fetch();
             if(!$req){$stmt=$pdo->prepare("INSERT INTO feedback_requests(participant_id,respondent_id,type,status,submitted_at) VALUES(?,?, 'manager','submitted',NOW())");$stmt->execute([$participantId,$manager['id']]);$reqId=(int)$pdo->lastInsertId();} else {$reqId=(int)$req['id'];$pdo->prepare("UPDATE feedback_requests SET status='submitted',submitted_at=NOW() WHERE id=?")->execute([$reqId]);}
-            foreach(($in['competencies']??[]) as $c){$cid=(int)($c['competencyId']??0);$score=(int)($c['score']??0);$comment=trim((string)($c['comment']??''));if($cid>0&&$score>=1&&$score<=5){$stmt=$pdo->prepare("INSERT INTO feedback_ratings(request_id,competency_id,score,comment) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE score=VALUES(score),comment=VALUES(comment)");$stmt->execute([$reqId,$cid,$score,$comment]);}}
+            foreach($competencyRatings as $c){$cid=(int)$c['competencyId'];$score=(int)$c['score'];$comment=trim((string)($c['comment']??''));$stmt=$pdo->prepare("INSERT INTO feedback_ratings(request_id,competency_id,score,comment) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE score=VALUES(score),comment=VALUES(comment)");$stmt->execute([$reqId,$cid,$score,$comment]);}
             audit((int)$manager['id'],'SUBMIT_MANAGER_REVIEW','review_participant',$participantId,'Submitted manager review'); $pdo->commit(); json_response(['ok'=>true]);
 
         case 'decide_peer':
+            require_method('POST'); require_csrf();
             $manager=require_permission('manager.reviews'); $in=input(); $id=(int)($in['id']??0); $status=$in['status']??''; if(!in_array($status,['approved','rejected'],true)) json_response(['ok'=>false,'error'=>'Invalid peer decision'],422);
             $pdo=db(); $stmt=$pdo->prepare("SELECT pn.id FROM peer_nominations pn JOIN review_participants rp ON rp.id=pn.participant_id WHERE pn.id=? AND rp.manager_id=?");$stmt->execute([$id,$manager['id']]);if(!$stmt->fetch())json_response(['ok'=>false,'error'=>'Nomination not found'],404);
             $stmt=$pdo->prepare("UPDATE peer_nominations SET status=?, decided_by=? WHERE id=?");$stmt->execute([$status,$manager['id'],$id]);audit((int)$manager['id'],strtoupper('PEER_'.$status),'peer_nomination',$id,'Manager '.$status.' peer nomination');json_response(['ok'=>true]);
 
         case 'create_goal':
+            require_method('POST'); require_csrf();
             $manager=require_permission('manager.goals'); $in=input(); $eid=(int)($in['employeeId']??0);if($eid !== (int)$manager['id'] && !manager_employee((int)$manager['id'],$eid))json_response(['ok'=>false,'error'=>'Employee is not your direct report'],403);
-            $title=trim((string)($in['title']??''));$target=trim((string)($in['target']??''));$due=(string)($in['due']??'');if($title===''||$target===''||$due==='')json_response(['ok'=>false,'error'=>'Goal title, measurable target and due date are required'],422);
+            $title=trim((string)($in['title']??''));$target=trim((string)($in['target']??''));$due=(string)($in['due']??'');if($title===''||strlen($title)>200||$target===''||strlen($target)>5000||!valid_date($due))json_response(['ok'=>false,'error'=>'A valid goal title, measurable target and due date are required'],422);
+            if ($due < date('Y-m-d')) json_response(['ok'=>false,'error'=>'Goal due date cannot be in the past'],422);
             $stmt=db()->prepare("INSERT INTO goals(employee_id,manager_id,title,description,due_date,status,progress_pct) VALUES(?,?,?,?,?,'not_started',0)");$stmt->execute([$eid,$manager['id'],$title,$target,$due]);$id=(int)db()->lastInsertId();audit((int)$manager['id'],'CREATE_GOAL','goal',$id,'Created employee goal');json_response(['ok'=>true,'id'=>$id]);
 
         case 'update_goal':
+            require_method('POST'); require_csrf();
             $manager=require_permission('manager.goals');$in=input();$id=(int)($in['id']??0);$progress=max(0,min(100,(int)($in['progress']??0)));$status=strtolower(str_replace(' ','_',trim((string)($in['status']??'not_started'))));$title=trim((string)($in['title']??''));
+            if($title===''||strlen($title)>200)json_response(['ok'=>false,'error'=>'Goal title is required and must be under 200 characters'],422);
             $stmt=db()->prepare("SELECT id FROM goals WHERE id=? AND manager_id=?");$stmt->execute([$id,$manager['id']]);if(!$stmt->fetch())json_response(['ok'=>false,'error'=>'Goal not found'],404);
-            $allowed=['not_started','in_progress','completed','missed'];if(!in_array($status,$allowed,true))json_response(['ok'=>false,'error'=>'Invalid goal status'],422);
+            $allowed=['not_started','in_progress','completed','missed'];if(!in_array($status,$allowed,true))json_response(['ok'=>false,'error'=>'Invalid goal status'],422);if($status==='completed')$progress=100;
             $pdo=db();$pdo->prepare("UPDATE goals SET title=?,progress_pct=?,status=? WHERE id=? AND manager_id=?")->execute([$title,$progress,$status,$id,$manager['id']]);audit((int)$manager['id'],'UPDATE_GOAL','goal',$id,'Updated goal progress/status');json_response(['ok'=>true]);
 
         case 'create_pdp':
+            require_method('POST'); require_csrf();
             $manager=require_permission('manager.goals');$in=input();$eid=(int)($in['employeeId']??0);if(!manager_employee((int)$manager['id'],$eid))json_response(['ok'=>false,'error'=>'Employee is not your direct report'],403);
-            $title=trim((string)($in['title']??''));$description=trim((string)($in['description']??''));$due=(string)($in['due']??'');if($title===''||$due==='')json_response(['ok'=>false,'error'=>'PDP action and due date are required'],422);
+            $title=trim((string)($in['title']??''));$description=trim((string)($in['description']??''));$due=(string)($in['due']??'');if($title===''||strlen($title)>200||$description===''||strlen($description)>5000||!valid_date($due))json_response(['ok'=>false,'error'=>'PDP action, description and a valid due date are required'],422);if($due<date('Y-m-d'))json_response(['ok'=>false,'error'=>'PDP due date cannot be in the past'],422);
             $pdo=db();$pdo->beginTransaction();$stmt=$pdo->prepare("SELECT id FROM pdps WHERE employee_id=? AND manager_id=? AND status IN ('draft','agreed') ORDER BY id DESC LIMIT 1");$stmt->execute([$eid,$manager['id']]);$p=$stmt->fetch();if($p)$pdpId=(int)$p['id'];else{$stmt=$pdo->prepare("INSERT INTO pdps(employee_id,manager_id,summary,status) VALUES(?,?,?,'draft')");$stmt->execute([$eid,$manager['id'],'Development plan']);$pdpId=(int)$pdo->lastInsertId();}
             $stmt=$pdo->prepare("INSERT INTO pdp_actions(pdp_id,title,description,due_date,status,progress_pct) VALUES(?,?,?,?,'not_started',0)");$stmt->execute([$pdpId,$title,$description,$due]);$id=(int)$pdo->lastInsertId();audit((int)$manager['id'],'CREATE_PDP_ACTION','pdp_action',$id,'Created PDP action');$pdo->commit();json_response(['ok'=>true,'id'=>$id]);
 
         case 'update_pdp':
+            require_method('POST'); require_csrf();
             $manager=require_permission('manager.goals');$in=input();$id=(int)($in['id']??0);$progress=max(0,min(100,(int)($in['progress']??0)));$status=strtolower(str_replace(' ','_',trim((string)($in['status']??'not_started'))));$title=trim((string)($in['title']??''));$note=trim((string)($in['note']??''));
-            $allowed=['not_started','in_progress','completed','overdue','cancelled'];if(!in_array($status,$allowed,true))json_response(['ok'=>false,'error'=>'Invalid PDP status'],422);
+            if($title===''||strlen($title)>200||strlen($note)>5000)json_response(['ok'=>false,'error'=>'A valid PDP title and progress note under 5,000 characters are required'],422);$allowed=['not_started','in_progress','completed','overdue','cancelled'];if(!in_array($status,$allowed,true))json_response(['ok'=>false,'error'=>'Invalid PDP status'],422);if($status==='completed')$progress=100;
             $pdo=db();$stmt=$pdo->prepare("SELECT pa.id FROM pdp_actions pa JOIN pdps p ON p.id=pa.pdp_id WHERE pa.id=? AND p.manager_id=?");$stmt->execute([$id,$manager['id']]);if(!$stmt->fetch())json_response(['ok'=>false,'error'=>'PDP action not found'],404);
             $completedAt=$status==='completed'?'NOW()':'NULL';$pdo->prepare("UPDATE pdp_actions SET title=?,progress_pct=?,status=?,completed_at=$completedAt WHERE id=?")->execute([$title,$progress,$status,$id]);
             if($note!=='')$pdo->prepare("INSERT INTO action_updates(action_id,author_id,note,new_status) VALUES(?,?,?,?)")->execute([$id,$manager['id'],$note,$status]);audit((int)$manager['id'],'UPDATE_PDP_ACTION','pdp_action',$id,'Updated PDP action');json_response(['ok'=>true]);
 
         case 'create_pip':
+            require_method('POST'); require_csrf();
             $manager=require_permission('manager.pips');$in=input();$eid=(int)($in['employeeId']??0);if(!manager_employee((int)$manager['id'],$eid))json_response(['ok'=>false,'error'=>'Employee is not your direct report'],403);$hr=(int)($in['hrOwnerId']??0);$stmt=db()->prepare("SELECT id FROM users WHERE id=? AND role='hr' AND is_active=1");$stmt->execute([$hr]);if(!$stmt->fetch())json_response(['ok'=>false,'error'=>'A valid HR owner is required'],422);
-            $reason=trim((string)($in['reason']??''));$start=(string)($in['start']??'');$end=(string)($in['end']??'');$objective=trim((string)($in['objective']??''));$criteria=trim((string)($in['criteria']??''));$due=(string)($in['objectiveDue']??'');if($reason===''||$start===''||$end===''||$objective===''||$criteria==='')json_response(['ok'=>false,'error'=>'Reason, dates, objective and measurable success criteria are required'],422);
+            $reason=trim((string)($in['reason']??''));$start=(string)($in['start']??'');$end=(string)($in['end']??'');$objective=trim((string)($in['objective']??''));$criteria=trim((string)($in['criteria']??''));$due=(string)($in['objectiveDue']??'');if($reason===''||strlen($reason)>5000||!valid_date($start)||!valid_date($end)||$objective===''||strlen($objective)>255||$criteria===''||strlen($criteria)>5000||!valid_date($due))json_response(['ok'=>false,'error'=>'Reason, valid dates, objective and measurable success criteria are required'],422);if($end<$start)json_response(['ok'=>false,'error'=>'PIP end date must be on or after the start date'],422);if($due<$start||$due>$end)json_response(['ok'=>false,'error'=>'Objective due date must fall within the PIP period'],422);
             $pdo=db();$pdo->beginTransaction();$stmt=$pdo->prepare("INSERT INTO pips(employee_id,manager_id,hr_owner_id,reason,start_date,end_date,status) VALUES(?,?,?,?,?,?,'draft')");$stmt->execute([$eid,$manager['id'],$hr,$reason,$start,$end]);$id=(int)$pdo->lastInsertId();$pdo->prepare("INSERT INTO pip_objectives(pip_id,objective,success_criteria,due_date) VALUES(?,?,?,?)")->execute([$id,$objective,$criteria,$due]);audit((int)$manager['id'],'CREATE_PIP','pip',$id,'Created PIP draft');$pdo->commit();json_response(['ok'=>true,'id'=>$id]);
 
         case 'add_pip_objective':
-            $manager=require_permission('manager.pips');$in=input();$id=(int)($in['pipId']??0);$objective=trim((string)($in['objective']??''));$criteria=trim((string)($in['criteria']??''));$due=(string)($in['due']??'');$stmt=db()->prepare("SELECT id FROM pips WHERE id=? AND manager_id=?");$stmt->execute([$id,$manager['id']]);if(!$stmt->fetch())json_response(['ok'=>false,'error'=>'PIP not found'],404);if($objective===''||$criteria==='')json_response(['ok'=>false,'error'=>'Objective and measurable success criteria are required'],422);$stmt=db()->prepare("INSERT INTO pip_objectives(pip_id,objective,success_criteria,due_date) VALUES(?,?,?,?)");$stmt->execute([$id,$objective,$criteria,$due?:null]);audit((int)$manager['id'],'ADD_PIP_OBJECTIVE','pip',$id,'Added PIP objective');json_response(['ok'=>true]);
+            require_method('POST'); require_csrf();
+            $manager=require_permission('manager.pips');$in=input();$id=(int)($in['pipId']??0);$objective=trim((string)($in['objective']??''));$criteria=trim((string)($in['criteria']??''));$due=(string)($in['due']??'');$stmt=db()->prepare("SELECT id,start_date,end_date,status FROM pips WHERE id=? AND manager_id=?");$stmt->execute([$id,$manager['id']]);$pip=$stmt->fetch();if(!$pip)json_response(['ok'=>false,'error'=>'PIP not found'],404);if(in_array($pip['status'],['successful','unsuccessful','closed'],true))json_response(['ok'=>false,'error'=>'Objectives cannot be added to a completed PIP'],409);if($objective===''||strlen($objective)>255||$criteria===''||strlen($criteria)>5000||!valid_date($due))json_response(['ok'=>false,'error'=>'Objective, measurable success criteria and a valid due date are required'],422);if($due<$pip['start_date']||$due>$pip['end_date'])json_response(['ok'=>false,'error'=>'Objective due date must fall within the PIP period'],422);$stmt=db()->prepare("INSERT INTO pip_objectives(pip_id,objective,success_criteria,due_date) VALUES(?,?,?,?)");$stmt->execute([$id,$objective,$criteria,$due]);audit((int)$manager['id'],'ADD_PIP_OBJECTIVE','pip',$id,'Added PIP objective');json_response(['ok'=>true]);
 
         case 'update_pip_objective':
-            $manager=require_permission('manager.pips');$in=input();$id=(int)($in['id']??0);$status=(string)($in['status']??'');if(!in_array($status,['not_met','partially_met','met'],true))json_response(['ok'=>false,'error'=>'Invalid objective status'],422);$pdo=db();$stmt=$pdo->prepare("SELECT po.id FROM pip_objectives po JOIN pips p ON p.id=po.pip_id WHERE po.id=? AND p.manager_id=?");$stmt->execute([$id,$manager['id']]);if(!$stmt->fetch())json_response(['ok'=>false,'error'=>'Objective not found'],404);$pdo->prepare("UPDATE pip_objectives SET status=? WHERE id=?")->execute([$status,$id]);audit((int)$manager['id'],'UPDATE_PIP_OBJECTIVE','pip_objective',$id,'Updated PIP objective');json_response(['ok'=>true]);
+            require_method('POST'); require_csrf();
+            $manager=require_permission('manager.pips');$in=input();$id=(int)($in['id']??0);$status=(string)($in['status']??'');if(!in_array($status,['not_met','partially_met','met'],true))json_response(['ok'=>false,'error'=>'Invalid objective status'],422);$pdo=db();$stmt=$pdo->prepare("SELECT po.id,p.status pip_status FROM pip_objectives po JOIN pips p ON p.id=po.pip_id WHERE po.id=? AND p.manager_id=?");$stmt->execute([$id,$manager['id']]);$objective=$stmt->fetch();if(!$objective)json_response(['ok'=>false,'error'=>'Objective not found'],404);if(in_array($objective['pip_status'],['successful','unsuccessful','closed'],true))json_response(['ok'=>false,'error'=>'A completed PIP cannot be changed'],409);$pdo->prepare("UPDATE pip_objectives SET status=? WHERE id=?")->execute([$status,$id]);audit((int)$manager['id'],'UPDATE_PIP_OBJECTIVE','pip_objective',$id,'Updated PIP objective');json_response(['ok'=>true]);
 
         case 'add_pip_checkin':
-            $manager=require_permission('manager.pips');$in=input();$pipId=(int)($in['pipId']??0);$notes=trim((string)($in['notes']??''));$date=(string)($in['date']??date('Y-m-d'));$stmt=db()->prepare("SELECT id FROM pips WHERE id=? AND manager_id=?");$stmt->execute([$pipId,$manager['id']]);if(!$stmt->fetch())json_response(['ok'=>false,'error'=>'PIP not found'],404);if($notes==='')json_response(['ok'=>false,'error'=>'Check-in notes are required'],422);$pdo=db();$pdo->prepare("INSERT INTO pip_checkins(pip_id,checkin_date,author_id,notes) VALUES(?,?,?,?)")->execute([$pipId,$date,$manager['id'],$notes]);$pdo->prepare("UPDATE pips SET status=IF(status='draft','active',status) WHERE id=?")->execute([$pipId]);audit((int)$manager['id'],'ADD_PIP_CHECKIN','pip',$pipId,'Recorded PIP check-in');json_response(['ok'=>true]);
+            require_method('POST'); require_csrf();
+            $manager=require_permission('manager.pips');$in=input();$pipId=(int)($in['pipId']??0);$notes=trim((string)($in['notes']??''));$date=(string)($in['date']??date('Y-m-d'));$stmt=db()->prepare("SELECT id,start_date,end_date,status FROM pips WHERE id=? AND manager_id=?");$stmt->execute([$pipId,$manager['id']]);$pip=$stmt->fetch();if(!$pip)json_response(['ok'=>false,'error'=>'PIP not found'],404);if(in_array($pip['status'],['successful','unsuccessful','closed'],true))json_response(['ok'=>false,'error'=>'Check-ins cannot be added to a completed PIP'],409);if($notes===''||strlen($notes)>5000||!valid_date($date))json_response(['ok'=>false,'error'=>'Check-in date and notes under 5,000 characters are required'],422);if($date<$pip['start_date']||$date>$pip['end_date'])json_response(['ok'=>false,'error'=>'Check-in date must fall within the PIP period'],422);$pdo=db();$pdo->prepare("INSERT INTO pip_checkins(pip_id,checkin_date,author_id,notes) VALUES(?,?,?,?)")->execute([$pipId,$date,$manager['id'],$notes]);$pdo->prepare("UPDATE pips SET status=IF(status='draft','active',status) WHERE id=?")->execute([$pipId]);audit((int)$manager['id'],'ADD_PIP_CHECKIN','pip',$pipId,'Recorded PIP check-in');json_response(['ok'=>true]);
 
         case 'update_pip_status':
-            $manager=require_permission('manager.pips');$in=input();$id=(int)($in['id']??0);$status=(string)($in['status']??'');$note=trim((string)($in['note']??''));if(!in_array($status,['draft','active','extended','successful','unsuccessful','closed'],true))json_response(['ok'=>false,'error'=>'Invalid PIP status'],422);$pdo=db();$stmt=$pdo->prepare("SELECT id FROM pips WHERE id=? AND manager_id=?");$stmt->execute([$id,$manager['id']]);if(!$stmt->fetch())json_response(['ok'=>false,'error'=>'PIP not found'],404);$pdo->prepare("UPDATE pips SET status=?,outcome_note=? WHERE id=?")->execute([$status,$note?:null,$id]);audit((int)$manager['id'],'UPDATE_PIP_STATUS','pip',$id,'Updated PIP status');json_response(['ok'=>true]);
+            require_method('POST'); require_csrf();
+            $manager=require_permission('manager.pips');$in=input();$id=(int)($in['id']??0);$status=(string)($in['status']??'');$note=trim((string)($in['note']??''));if(!in_array($status,['draft','active','extended','successful','unsuccessful','closed'],true))json_response(['ok'=>false,'error'=>'Invalid PIP status'],422);if(strlen($note)>5000)json_response(['ok'=>false,'error'=>'Outcome note must be under 5,000 characters'],422);$pdo=db();$stmt=$pdo->prepare("SELECT id,status FROM pips WHERE id=? AND manager_id=?");$stmt->execute([$id,$manager['id']]);$pip=$stmt->fetch();if(!$pip)json_response(['ok'=>false,'error'=>'PIP not found'],404);$transitions=['draft'=>['draft','active','closed'],'active'=>['active','extended','successful','unsuccessful','closed'],'extended'=>['extended','successful','unsuccessful','closed'],'successful'=>['successful','closed'],'unsuccessful'=>['unsuccessful','closed'],'closed'=>['closed']];if(!in_array($status,$transitions[$pip['status']]??[],true))json_response(['ok'=>false,'error'=>'That PIP status transition is not allowed'],409);if(in_array($status,['extended','successful','unsuccessful','closed'],true)&&$note==='')json_response(['ok'=>false,'error'=>'An outcome note is required for this status'],422);$pdo->prepare("UPDATE pips SET status=?,outcome_note=? WHERE id=?")->execute([$status,$note?:null,$id]);audit((int)$manager['id'],'UPDATE_PIP_STATUS','pip',$id,'Updated PIP status from '.$pip['status'].' to '.$status);json_response(['ok'=>true]);
+
+        case 'mark_notifications_read':
+            require_method('POST'); require_csrf();
+            $manager=require_permission('manager.dashboard');$in=input();$ids=$in['ids']??[];if(!is_array($ids))json_response(['ok'=>false,'error'=>'Notification list is invalid'],422);$ids=array_slice(array_values(array_unique(array_filter(array_map(fn($v)=>trim((string)$v),$ids),fn($v)=>preg_match('/^[A-Za-z0-9-]{1,80}$/',$v)))),0,100);$pdo=db();$stmt=$pdo->prepare("INSERT INTO notification_reads(user_id,notification_key) VALUES(?,?) ON DUPLICATE KEY UPDATE read_at=CURRENT_TIMESTAMP");foreach($ids as $id)$stmt->execute([(int)$manager['id'],$id]);audit((int)$manager['id'],'MARK_NOTIFICATIONS_READ','notification',null,'Marked '.count($ids).' notifications as read');json_response(['ok'=>true,'count'=>count($ids)]);
 
         case 'my_permissions':
+            require_method('GET');
             $user = require_login();
-            json_response(['ok'=>true,'role'=>$user['role'],'permissions'=>permissions_for_role($user['role'])]);
+            json_response(['ok'=>true,'role'=>$user['role'],'permissions'=>permissions_for_role($user['role']),'csrfToken'=>csrf_token()]);
 
         default: json_response(['ok'=>false,'error'=>'Unknown action'],404);
     }
 } catch (Throwable $e) {
     if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
-    json_response(['ok'=>false,'error'=>$e->getMessage()],500);
+    error_log('PPPM API error: ' . $e->getMessage());
+    json_response(['ok'=>false,'error'=>APP_DEBUG ? $e->getMessage() : 'A server error occurred. Please try again or contact the administrator.'],500);
 }

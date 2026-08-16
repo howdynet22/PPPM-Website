@@ -2,10 +2,13 @@
   const API = 'api.php?action=';
 
   async function request(action, options = {}) {
+    const method = String(options.method || 'GET').toUpperCase();
+    const headers = {'Content-Type': 'application/json', ...(options.headers || {})};
+    if (method !== 'GET' && window.currentCsrfToken) headers['X-CSRF-Token'] = window.currentCsrfToken;
     const response = await fetch(API + action, {
       credentials: 'same-origin',
-      headers: {'Content-Type': 'application/json', ...(options.headers || {})},
-      ...options
+      ...options,
+      headers
     });
     const result = await response.json().catch(() => ({ok: false, error: 'Invalid server response'}));
     if (response.status === 401) {
@@ -13,6 +16,7 @@
       throw new Error('Your session has expired.');
     }
     if (!result.ok) throw new Error(result.error || 'Request failed');
+    if (result.csrfToken) window.currentCsrfToken = result.csrfToken;
     return result;
   }
 
@@ -25,8 +29,13 @@
   }
 
   function employeeById(id) { return data.employees.find(e => Number(e.id) === Number(id)); }
+  function can(permission) { return new Set(data.manager?.permissions || []).has(permission); }
+  function reviewComplete(employee) { return ['manager_submitted','released'].includes(employee.reviewStatusCode); }
+  function reviewReady(employee) { return ['self_submitted','peers_complete','manager_submitted'].includes(employee.reviewStatusCode); }
+  function csvCell(value) { let text=String(value??''); if(/^[=+\-@]/.test(text)) text="'"+text; return '"'+text.replaceAll('"','""')+'"'; }
 
   function mapDashboard(result) {
+    if (result.csrfToken) window.currentCsrfToken = result.csrfToken;
     data = {
       employees: result.employees || [],
       peerNominations: result.peerNominations || [],
@@ -60,8 +69,8 @@
     const ratings = data.employees.map(e => e.rating).filter(v => v !== null && v !== undefined);
     const avg = ratings.reduce((a,b) => a+b, 0) / (ratings.length || 1);
     $('#kpiTeam').textContent = data.employees.length;
-    $('#kpiRating').textContent = avg.toFixed(1) + '/5';
-    $('#kpiReviews').textContent = data.employees.filter(e => e.review !== 'Manager submitted').length;
+    $('#kpiRating').textContent = ratings.length ? avg.toFixed(1) + '/5' : '—';
+    $('#kpiReviews').textContent = data.employees.filter(e => !reviewComplete(e)).length;
     const p = data.pdps.length ? data.pdps.reduce((a,b) => a+b.progress, 0) / data.pdps.length : 0;
     $('#kpiPdp').textContent = Math.round(p) + '%';
 
@@ -70,18 +79,21 @@
         <div class="person"><div class="mini-avatar">${initials(e.name)}</div><div><strong>${esc(e.name)}</strong><div class="muted">${esc(e.role)}</div></div></div>
         <div><span class="status ${statusClass(e.review)}">${esc(e.review)}</span></div>
         <div><strong>${e.rating != null ? e.rating.toFixed(1) : '—'}</strong></div>
-        <div><div class="progress"><span style="width:${e.pdp}%"></span></div><div class="muted" style="margin-top:4px">PDP ${e.pdp}%</div></div>
+        <div><div class="progress"><span style="width:${e.pdpActionCount ? e.pdp : 0}%"></span></div><div class="muted" style="margin-top:4px">${e.pdpActionCount ? `PDP ${e.pdp}%` : 'No PDP actions'}</div></div>
         <div><button class="btn small" onclick="openEmployee(${e.id})">View</button></div>
       </div>`).join('') || '<div class="empty">No direct reports found.</div>';
 
     const selfCount = data.employees.filter(e => e.review !== 'Not started').length;
     const peerCount = data.employees.reduce((n, e) => n + Number(data.feedback[e.id]?.responses || 0), 0);
-    const managerCount = data.employees.filter(e => e.review === 'Manager submitted').length;
+    const peerRequired = data.employees.reduce((n,e)=>n+Number(data.feedback[e.id]?.required||0),0);
+    const managerCount = data.employees.filter(reviewComplete).length;
     $('#reviewMetrics').innerHTML = [
       ['Self reviews', selfCount, data.employees.length],
-      ['Peer feedback', peerCount, Math.max(data.employees.length * 3, 1)],
+      ['Peer feedback', peerCount, Math.max(peerRequired, 1)],
       ['Manager reviews', managerCount, data.employees.length]
     ].map(x => `<div class="metric"><span>${x[0]}</span><div class="progress"><span style="width:${Math.min(100, x[1]/x[2]*100)}%"></span></div><strong>${x[1]}/${x[2]}</strong></div>`).join('');
+    const deadline = data.employees.find(e=>e.managerDeadline)?.managerDeadline;
+    $('#reviewDeadlineNotice').textContent = deadline ? `Manager deadline: ${new Date(deadline+'T00:00:00').toLocaleDateString()}. Complete pending manager reviews before the cycle can move forward.` : 'No manager review deadline is currently available.';
 
     const attention = data.employees.filter(e => e.attention).slice(0, 3);
     $('#watchlist').innerHTML = attention.map(e => `<div class="activity-item"><span class="dot"></span><div><strong>${esc(e.name)}</strong> needs development attention. <button class="btn small" onclick="openEmployee(${e.id})">Review</button></div></div>`).join('') || '<div class="empty">No employees currently on the watchlist.</div>';
@@ -99,7 +111,7 @@
       <td>${esc(e.role)}</td><td><span class="status ${statusClass(e.review)}">${esc(e.review)}</span></td>
       <td class="score">${e.rating != null ? e.rating.toFixed(1) : '—'}</td><td>${e.goals}</td>
       <td><div class="progress" style="width:90px"><span style="width:${e.pdp}%"></span></div><small class="muted">${e.pdp}%</small></td>
-      <td><div class="action-group"><button class="btn small" onclick="openEmployee(${e.id})">View</button><button class="btn small" onclick="newGoal(${e.id})">Goal</button><button class="btn small" onclick="newPdp(${e.id})">PDP</button></div></td>
+      <td><div class="action-group"><button class="btn small" onclick="openEmployee(${e.id})">View</button>${can('manager.goals') ? `<button class="btn small" onclick="newGoal(${e.id})">Goal</button><button class="btn small" onclick="newPdp(${e.id})">PDP</button>` : ''}</div></td>
     </tr>`).join('') || '<tr><td colspan="7" class="empty">No employees match the filter.</td></tr>';
   }
 
@@ -111,8 +123,8 @@
     $('#reviewTable').innerHTML = rows.map(e => `<tr>
       <td>${esc(e.name)}</td><td>${esc(e.cycle)}</td><td><span class="status ${statusClass(e.review)}">${esc(e.review)}</span></td>
       <td>${data.feedback[e.id]?.available ? `${data.feedback[e.id].responses} submitted` : `${data.feedback[e.id]?.responses || 0}/${data.feedback[e.id]?.required || 3} required`}</td>
-      <td><span class="status ${e.review === 'Manager submitted' ? 'green' : 'amber'}">${e.review === 'Manager submitted' ? 'Submitted' : 'Pending'}</span></td>
-      <td><button class="btn small primary" onclick="openReview(${e.id})">${e.review === 'Manager submitted' ? 'View / Edit' : 'Review'}</button></td>
+      <td><span class="status ${reviewComplete(e) ? 'green' : 'amber'}">${reviewComplete(e) ? 'Complete' : 'Pending'}</span></td>
+      <td>${can('manager.reviews') ? `<button class="btn small primary" onclick="openReview(${e.id})" ${reviewReady(e) ? '' : 'disabled'}>${reviewComplete(e) ? 'View / Edit' : reviewReady(e) ? 'Review' : 'Waiting for self-review'}</button>` : '<span class="muted">No permission</span>'}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="empty">No review records.</td></tr>';
 
     $('#peerTable').innerHTML = data.peerNominations.map(n => `<tr><td>${esc(n.employee)}</td><td>${esc(n.peer)}</td><td><span class="status ${statusClass(n.status)}">${esc(n.status)}</span></td><td>
@@ -140,25 +152,38 @@
     const avg = ratings.reduce((a,b)=>a+b,0)/(ratings.length||1);
     const goal = data.goals.length ? Math.round(data.goals.reduce((a,b)=>a+b.progress,0)/data.goals.length) : 0;
     const gaps = data.employees.flatMap(e => e.skills.filter(s => s[2] < s[1]).map(s => ({employee:e.name,skill:s[0],required:s[1],current:s[2],gap:s[1]-s[2]})));
-    $('#reportAvg').textContent = avg.toFixed(1); $('#reportGoal').textContent = goal+'%'; $('#reportGaps').textContent = gaps.length; $('#reportPips').textContent = data.pips.filter(p => ['active','extended'].includes(p.status)).length;
+    $('#reportAvg').textContent = ratings.length ? avg.toFixed(1) : '—'; $('#reportGoal').textContent = goal+'%'; $('#reportGaps').textContent = gaps.length; $('#reportPips').textContent = data.pips.filter(p => ['active','extended'].includes(p.status)).length;
     $('#performanceChart').innerHTML = data.employees.map(e => { const val=e.rating||0; return `<div class="bar"><strong style="font-size:11px">${val ? val.toFixed(1) : '—'}</strong><i style="height:${val/5*150}px"></i><span>${esc(e.name.split(' ')[0])}</span></div>`; }).join('');
     $('#skillGapList').innerHTML = gaps.sort((a,b)=>b.gap-a.gap).slice(0,8).map(g => `<div class="metric"><span>${esc(g.employee.split(' ')[0])} · ${esc(g.skill)}</span><div class="progress"><span style="width:${Math.min(100,g.current/g.required*100)}%"></span></div><strong>-${g.gap}</strong></div>`).join('') || '<div class="empty">No skill gaps found.</div>';
   }
 
   function renderPersonal() {
     const p = data.personal || {};
-    const cards = [];
-    if (p.review) cards.push(`<div class="notice"><strong>Latest review:</strong> ${esc(titleStatus(p.review.status))}${p.review.final_rating != null ? ` · ${Number(p.review.final_rating).toFixed(1)}/5` : ''}<div class="muted" style="margin-top:5px">${esc(p.review.cycle || '')}</div></div>`);
     const goals = p.goals || [];
+    const pdpActions = p.pdp || [];
+    const activeGoals = goals.filter(g => !['Completed','Missed'].includes(g.status));
+    const pdpAverage = pdpActions.length ? Math.round(pdpActions.reduce((sum,a)=>sum+Number(a.progress||0),0)/pdpActions.length) : null;
+    $('#personalInitials').textContent = initials(data.manager.full_name || 'Manager');
+    $('#personalName').textContent = data.manager.full_name || 'Manager';
+    $('#personalMeta').textContent = [data.manager.job_title,data.manager.department].filter(Boolean).join(' · ') || 'Manager profile';
+    $('#personalRating').textContent = p.review?.final_rating != null ? `${Number(p.review.final_rating).toFixed(1)} / 5` : '—';
+    $('#personalGoalCount').textContent = activeGoals.length;
+    $('#personalPdpProgress').textContent = pdpAverage == null ? '—' : `${pdpAverage}%`;
+    $('#personalTasks').innerHTML = p.review
+      ? `<label class="check-row"><input type="checkbox" ${['self_submitted','peers_complete','manager_submitted','released'].includes(p.review.status) ? 'checked' : ''} disabled> ${esc(p.review.cycle || 'Current')} review: ${esc(titleStatus(p.review.status))}</label><label class="check-row"><input type="checkbox" ${activeGoals.length===0 ? 'checked' : ''} disabled> ${activeGoals.length} active personal goal${activeGoals.length===1?'':'s'}</label><label class="check-row"><input type="checkbox" ${pdpActions.length===0 ? 'checked' : ''} disabled> ${pdpActions.length} personal PDP action${pdpActions.length===1?'':'s'}</label>`
+      : '<div class="notice">No personal review cycle is currently assigned to this manager account.</div>';
     $('#personalGoals').innerHTML = goals.length ? goals.map(g => `<div style="padding:12px 0;border-bottom:1px solid var(--line)"><div style="display:flex;justify-content:space-between"><strong style="font-size:12px">${esc(g.title)}</strong><span class="status ${statusClass(g.status)}">${esc(g.status)}</span></div><div class="muted" style="font-size:11px;margin-top:4px">${esc(g.target || '')} · Due ${g.due}</div><div class="progress" style="margin-top:8px"><span style="width:${g.progress}%"></span></div><div class="muted" style="font-size:10px;margin-top:4px">${g.progress}% complete</div></div>`).join('') : '<div class="empty">No personal goals have been recorded.</div>';
     const pdpEl = $('#personalPdp');
-    if (pdpEl) pdpEl.innerHTML = (p.pdp || []).map(a => `<div class="activity-item"><span class="dot"></span><div><strong>${esc(a.title)}</strong><div class="muted">${a.progress}% · ${esc(a.status)} · due ${a.due}</div></div></div>`).join('') || '<div class="empty">No personal PDP actions.</div>';
+    if (pdpEl) pdpEl.innerHTML = pdpActions.map(a => `<div class="activity-item"><span class="dot"></span><div><strong>${esc(a.title)}</strong><div class="muted">${a.progress}% · ${esc(a.status)} · due ${a.due}</div></div></div>`).join('') || '<div class="empty">No personal PDP actions.</div>';
     const fbEl = $('#personalFeedback');
-    if (fbEl) fbEl.innerHTML = (p.feedback || []).map(f => `<div class="metric"><span>${esc(f.competency)}</span><div class="progress"><span style="width:${Number(f.avg_score)/5*100}%"></span></div><strong>${Number(f.avg_score).toFixed(1)}</strong></div>`).join('') || '<div class="empty">No feedback available.</div>';
+    const feedbackMeta = p.feedbackMeta || {available:false,released:false,responses:0,required:3};
+    if (fbEl) fbEl.innerHTML = feedbackMeta.available
+      ? (p.feedback || []).map(f => `<div class="metric"><span>${esc(f.competency)}</span><div class="progress"><span style="width:${Number(f.avg_score)/5*100}%"></span></div><strong>${Number(f.avg_score).toFixed(1)}</strong></div>`).join('') || '<div class="empty">No feedback available.</div>'
+      : !feedbackMeta.released ? '<div class="notice">Personal feedback will appear after the review is formally released.</div>' : `<div class="notice warn">Anonymous feedback is hidden until ${feedbackMeta.required} peer responses are submitted (${feedbackMeta.responses}/${feedbackMeta.required}).</div>`;
   }
 
   function renderNotifications() {
-    $('#notificationsList').innerHTML = data.notifications.map(n => `<div class="activity-item" style="padding:11px 0;border-bottom:1px solid var(--line)"><span class="dot" style="background:#334155"></span><div style="flex:1"><strong style="font-size:12px">New · </strong>${esc(n.text)}<div class="muted" style="margin-top:4px">${esc(n.time)}</div></div></div>`).join('') || '<div class="empty">No notifications.</div>';
+    $('#notificationsList').innerHTML = data.notifications.map(n => `<div class="activity-item" style="padding:11px 0;border-bottom:1px solid var(--line);opacity:${n.unread ? 1 : .65}"><span class="dot" style="background:${n.unread ? '#334155' : '#cbd5e1'}"></span><div style="flex:1">${n.unread ? '<strong style="font-size:12px">New · </strong>' : ''}${esc(n.text)}<div class="muted" style="margin-top:4px">${esc(n.time)}</div></div></div>`).join('') || '<div class="empty">No notifications.</div>';
   }
 
   function renderAll() { renderOverview(); renderTeam(); renderReviews(); renderGoals(); renderPips(); renderReports(); renderPersonal(); renderNotifications(); }
@@ -166,16 +191,17 @@
   function openEmployee(id) {
     const e = employeeById(id); if (!e) return;
     const gaps = e.skills.filter(s => s[2] < s[1]);
-    openModal(e.name, `<div class="profile-card" style="margin-bottom:18px"><div class="profile-avatar">${initials(e.name)}</div><div><h2 style="margin:0 0 5px">${esc(e.name)}</h2><p class="muted" style="margin:0;font-size:12px">${esc(e.role)} · Direct report</p></div></div><div class="detail-grid"><div class="detail-box"><small>Latest rating</small><strong>${e.rating != null ? e.rating.toFixed(1) : 'Not rated'}</strong></div><div class="detail-box"><small>Review status</small><strong>${esc(e.review)}</strong></div><div class="detail-box"><small>PDP progress</small><strong>${e.pdp}%</strong></div></div><div class="section-head"><div><h2>Skill gaps</h2><p>Required vs current level from the database.</p></div></div><div class="metric-list">${gaps.length ? gaps.map(s => `<div class="metric"><span>${esc(s[0])}</span><div class="progress"><span style="width:${s[1] ? s[2]/s[1]*100 : 0}%"></span></div><strong>${s[2]}/${s[1]}</strong></div>`).join('') : '<div class="notice">No current skill gaps.</div>'}</div>`, `<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="closeModal();showPage('reviews');setTimeout(()=>openReview(${id}),100)">Review performance</button><button class="btn primary" onclick="closeModal();newPdp(${id})">Create PDP</button>`);
+    openModal(e.name, `<div class="profile-card" style="margin-bottom:18px"><div class="profile-avatar">${initials(e.name)}</div><div><h2 style="margin:0 0 5px">${esc(e.name)}</h2><p class="muted" style="margin:0;font-size:12px">${esc(e.role)} · Direct report</p></div></div><div class="detail-grid"><div class="detail-box"><small>Latest rating</small><strong>${e.rating != null ? e.rating.toFixed(1) : 'Not rated'}</strong></div><div class="detail-box"><small>Review status</small><strong>${esc(e.review)}</strong></div><div class="detail-box"><small>PDP progress</small><strong>${e.pdpActionCount ? `${e.pdp}%` : 'No actions'}</strong></div></div><div class="section-head"><div><h2>Skill gaps</h2><p>Required vs current level from the database.</p></div></div><div class="metric-list">${gaps.length ? gaps.map(s => `<div class="metric"><span>${esc(s[0])}</span><div class="progress"><span style="width:${s[1] ? s[2]/s[1]*100 : 0}%"></span></div><strong>${s[2]}/${s[1]}</strong></div>`).join('') : '<div class="notice">No current skill gaps.</div>'}</div>`, `<button class="btn" onclick="closeModal()">Close</button>${can('manager.reviews') ? `<button class="btn" ${reviewReady(e)?'':'disabled'} onclick="closeModal();showPage('reviews');setTimeout(()=>openReview(${id}),100)">Review performance</button>` : ''}${can('manager.goals') ? `<button class="btn primary" onclick="closeModal();newPdp(${id})">Create PDP</button>` : ''}`);
   }
 
   function openReview(id) {
     const e = employeeById(id); if (!e || !e.participantId) return toast('This employee has no review participant for the current cycle.');
+    if (!reviewReady(e)) return toast('The employee self-review must be submitted before the manager review.');
     const existing = e.rating || 3;
     const savedRatings = Object.fromEntries((data.managerRatings[e.id] || []).map(x => [x.competencyId, x]));
     const peer = data.feedback[e.id];
     const compHtml = data.competencies.map(c => { const v=savedRatings[c.id]?.score || 3; return `<div class="field"><label>${esc(c.name)}</label><select id="comp_${c.id}">${[1,2,3,4,5].map(n=>`<option value="${n}" ${n===v?'selected':''}>${n}</option>`).join('')}</select></div>`; }).join('');
-    openModal('Manager Review — '+e.name, `<div class="notice" style="margin-bottom:15px">Peer feedback is aggregated and anonymous. ${peer?.available ? `${peer.responses} peer responses are available.` : `Peer results are hidden until ${peer?.required || 3} responses are submitted.`}</div><div class="form-grid"><div class="field"><label>Overall rating (1–5)</label><select id="reviewRating">${[1,2,3,4,5].map(n=>`<option value="${n}" ${Math.round(existing)===n?'selected':''}>${n}</option>`).join('')}</select></div><div class="field"><label>Review status</label><input value="Manager review" disabled></div>${compHtml}<div class="field full"><label>Manager summary</label><textarea id="reviewSummary" placeholder="Summarise strengths, improvement areas and expectations..."></textarea></div></div>`, `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="submitReview(${id})">Submit manager review</button>`);
+    openModal('Manager Review — '+e.name, `<div class="notice" style="margin-bottom:15px">Peer feedback is aggregated and anonymous. ${peer?.available ? `${peer.responses} peer responses are available.` : `Peer results are hidden until ${peer?.required || 3} responses are submitted.`}</div><div class="form-grid"><div class="field"><label>Overall rating (1–5)</label><select id="reviewRating">${[1,2,3,4,5].map(n=>`<option value="${n}" ${Math.round(existing)===n?'selected':''}>${n}</option>`).join('')}</select></div><div class="field"><label>Review status</label><input value="Manager review" disabled></div>${compHtml}<div class="field full"><label>Manager summary</label><textarea id="reviewSummary" placeholder="Summarise strengths, improvement areas and expectations...">${esc(e.managerSummary || '')}</textarea></div></div>`, `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="submitReview(${id})">${reviewComplete(e) ? 'Save review changes' : 'Submit manager review'}</button>`);
   }
 
   async function submitReview(id) {
@@ -187,6 +213,7 @@
   async function decidePeer(id,status){ try { await request('decide_peer',{method:'POST',body:JSON.stringify({id,status})}); await refresh(); toast(`Peer nomination ${status}.`); } catch(err){toast(err.message);} }
 
   function newGoal(employeeId){
+    if(!data.employees.length)return toast('No direct reports are available for a team goal.');
     const e=employeeById(employeeId);
     openModal('Create team goal', `<div class="form-grid"><div class="field"><label>Employee</label><select id="goalEmployee">${data.employees.map(x=>`<option value="${x.id}" ${e&&x.id===e.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div><div class="field"><label>Due date</label><input id="goalDue" type="date"></div><div class="field full"><label>Goal title</label><input id="goalTitle" placeholder="e.g. Improve delivery reliability"></div><div class="field full"><label>Metric / target</label><textarea id="goalTarget" placeholder="Define a measurable outcome"></textarea></div></div>`, `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveGoal()">Create goal</button>`);
   }
@@ -201,28 +228,32 @@
   }
   async function savePersonalGoal(){try{await request('create_goal',{method:'POST',body:JSON.stringify({employeeId:Number(data.manager.id),title:$('#personalGoalTitle').value.trim(),target:$('#personalGoalTarget').value.trim(),due:$('#personalGoalDue').value})});closeModal();await refresh();toast('Personal goal saved to the database.');}catch(err){toast(err.message);}}
 
-  function newPdp(employeeId){const e=employeeById(employeeId);openModal('Create PDP action',`<div class="form-grid"><div class="field"><label>Employee</label><select id="pdpEmployee">${data.employees.map(x=>`<option value="${x.id}" ${e&&x.id===e.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div><div class="field"><label>Due date</label><input id="pdpDue" type="date"></div><div class="field full"><label>Development action</label><input id="pdpTitle" placeholder="e.g. Complete PHP OOP course"></div><div class="field full"><label>Action description</label><textarea id="pdpDescription" placeholder="Steps, evidence and expected outcome"></textarea></div></div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="savePdp()">Create PDP action</button>`)}
+  function newPdp(employeeId){if(!data.employees.length)return toast('No direct reports are available for a PDP.');const e=employeeById(employeeId);openModal('Create PDP action',`<div class="form-grid"><div class="field"><label>Employee</label><select id="pdpEmployee">${data.employees.map(x=>`<option value="${x.id}" ${e&&x.id===e.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div><div class="field"><label>Due date</label><input id="pdpDue" type="date"></div><div class="field full"><label>Development action</label><input id="pdpTitle" placeholder="e.g. Complete PHP OOP course"></div><div class="field full"><label>Action description</label><textarea id="pdpDescription" placeholder="Steps, evidence and expected outcome"></textarea></div></div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="savePdp()">Create PDP action</button>`)}
   async function savePdp(){try{await request('create_pdp',{method:'POST',body:JSON.stringify({employeeId:Number($('#pdpEmployee').value),title:$('#pdpTitle').value.trim(),description:$('#pdpDescription').value.trim(),due:$('#pdpDue').value})});closeModal();await refresh();toast('PDP action saved to the database.');}catch(err){toast(err.message);}}
 
   function editPdp(id){const p=data.pdps.find(x=>x.id===id);if(!p)return;openModal('Update PDP action',`<div class="form-grid"><div class="field full"><label>Action</label><input id="editPdpTitle" value="${esc(p.title)}"></div><div class="field"><label>Progress (%)</label><input id="editPdpProgress" type="number" min="0" max="100" value="${p.progress}"></div><div class="field"><label>Status</label><select id="editPdpStatus">${['Not Started','In Progress','Completed','Overdue','Cancelled'].map(s=>`<option ${p.status===s?'selected':''}>${s}</option>`).join('')}</select></div><div class="field full"><label>Progress note</label><textarea id="editPdpNote" placeholder="Add a manager progress note"></textarea></div></div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="savePdpUpdate(${id})">Save progress</button>`)}
   async function savePdpUpdate(id){try{await request('update_pdp',{method:'POST',body:JSON.stringify({id,title:$('#editPdpTitle').value.trim(),progress:Number($('#editPdpProgress').value),status:$('#editPdpStatus').value,note:$('#editPdpNote').value.trim()})});closeModal();await refresh();toast('PDP progress saved to the database.');}catch(err){toast(err.message);}}
 
-  function newPip(){openModal('Start Performance Improvement Plan',`<div class="notice warn" style="margin-bottom:14px">Every PIP must have an HR owner and measurable success criteria.</div><div class="form-grid"><div class="field"><label>Employee</label><select id="pipEmployee">${data.employees.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div><div class="field"><label>HR owner</label><select id="pipHr">${data.hrOwners.map(h=>`<option value="${h.id}">${esc(h.name)}</option>`).join('')}</select></div><div class="field"><label>Start date</label><input id="pipStart" type="date"></div><div class="field"><label>End date</label><input id="pipEnd" type="date"></div><div class="field full"><label>Reason</label><textarea id="pipReason" placeholder="Document the performance issue clearly"></textarea></div><div class="field full"><label>First measurable objective</label><input id="pipObjective" placeholder="e.g. Meet 90% of sprint commitments"></div><div class="field full"><label>Measurable success criteria</label><textarea id="pipCriteria" placeholder="How will achievement be objectively measured?"></textarea></div><div class="field"><label>Objective due date</label><input id="pipObjectiveDue" type="date"></div></div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="savePip()">Create PIP</button>`)}
+  function newPip(){if(!data.employees.length)return toast('No direct reports are available for a PIP.');if(!data.hrOwners.length)return toast('An active HR owner is required before a PIP can be created.');openModal('Start Performance Improvement Plan',`<div class="notice warn" style="margin-bottom:14px">Every PIP must have an HR owner and measurable success criteria.</div><div class="form-grid"><div class="field"><label>Employee</label><select id="pipEmployee">${data.employees.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div><div class="field"><label>HR owner</label><select id="pipHr">${data.hrOwners.map(h=>`<option value="${h.id}">${esc(h.name)}</option>`).join('')}</select></div><div class="field"><label>Start date</label><input id="pipStart" type="date"></div><div class="field"><label>End date</label><input id="pipEnd" type="date"></div><div class="field full"><label>Reason</label><textarea id="pipReason" placeholder="Document the performance issue clearly"></textarea></div><div class="field full"><label>First measurable objective</label><input id="pipObjective" placeholder="e.g. Meet 90% of sprint commitments"></div><div class="field full"><label>Measurable success criteria</label><textarea id="pipCriteria" placeholder="How will achievement be objectively measured?"></textarea></div><div class="field"><label>Objective due date</label><input id="pipObjectiveDue" type="date"></div></div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="savePip()">Create PIP</button>`)}
   async function savePip(){try{await request('create_pip',{method:'POST',body:JSON.stringify({employeeId:Number($('#pipEmployee').value),hrOwnerId:Number($('#pipHr').value),start:$('#pipStart').value,end:$('#pipEnd').value,reason:$('#pipReason').value.trim(),objective:$('#pipObjective').value.trim(),criteria:$('#pipCriteria').value.trim(),objectiveDue:$('#pipObjectiveDue').value})});closeModal();await refresh();toast('PIP saved to the database.');}catch(err){toast(err.message);}}
 
-  function openPip(id){const p=data.pips.find(x=>x.id===id);if(!p)return;openModal('Manage PIP — '+p.employee,`<div class="detail-grid"><div class="detail-box"><small>Status</small><strong>${esc(p.status)}</strong></div><div class="detail-box"><small>Period</small><strong>${p.start} → ${p.end}</strong></div><div class="detail-box"><small>HR owner</small><strong>${esc(p.hrOwner)}</strong></div><div class="detail-box"><small>Objectives</small><strong>${p.objectives.length}</strong></div></div><div class="section-head"><div><h2>Objectives</h2><p>Success criteria must be measurable.</p></div><button class="btn small" onclick="addPipObjective(${id})">+ Objective</button></div><div class="metric-list">${p.objectives.map(o=>`<div class="notice"><div style="display:flex;justify-content:space-between;gap:10px"><strong>${esc(o.text)}</strong><span class="status ${o.status==='met'?'green':o.status==='partially_met'?'amber':'red'}">${esc(o.status.replace('_',' '))}</span></div><div class="muted" style="margin-top:5px">${esc(o.criteria || '')}</div><div class="muted" style="margin-top:5px">Due ${o.due || '—'}</div><div class="toolbar" style="margin-top:8px"><button class="btn small" onclick="setObjective(${o.id},'not_met',${id})">Not met</button><button class="btn small" onclick="setObjective(${o.id},'partially_met',${id})">Partially met</button><button class="btn small" onclick="setObjective(${o.id},'met',${id})">Met</button></div></div>`).join('') || '<div class="empty">No objectives.</div>'}</div><div class="section-head"><div><h2>Check-ins</h2><p>Record weekly or biweekly manager notes.</p></div><button class="btn small" onclick="addPipCheckin(${id})">+ Check-in</button></div><div class="activity">${p.checkins.map(c=>`<div class="activity-item"><span class="dot"></span><div><strong>${esc(c.date)}</strong><div>${esc(c.notes)}</div></div></div>`).join('') || '<div class="empty">No check-ins recorded.</div>'}</div>`,`<button class="btn" onclick="closeModal()">Close</button><button class="btn primary" onclick="changePipStatus(${id})">Update outcome</button>`)}
+  function openPip(id){const p=data.pips.find(x=>x.id===id);if(!p)return;const locked=['successful','unsuccessful','closed'].includes(p.status);openModal('Manage PIP — '+p.employee,`<div class="detail-grid"><div class="detail-box"><small>Status</small><strong>${esc(p.status)}</strong></div><div class="detail-box"><small>Period</small><strong>${p.start} → ${p.end}</strong></div><div class="detail-box"><small>HR owner</small><strong>${esc(p.hrOwner)}</strong></div><div class="detail-box"><small>Objectives</small><strong>${p.objectives.length}</strong></div></div><div class="section-head"><div><h2>Objectives</h2><p>Success criteria must be measurable.</p></div>${locked?'':`<button class="btn small" onclick="addPipObjective(${id})">+ Objective</button>`}</div><div class="metric-list">${p.objectives.map(o=>`<div class="notice"><div style="display:flex;justify-content:space-between;gap:10px"><strong>${esc(o.text)}</strong><span class="status ${o.status==='met'?'green':o.status==='partially_met'?'amber':'red'}">${esc(o.status.replace('_',' '))}</span></div><div class="muted" style="margin-top:5px">${esc(o.criteria || '')}</div><div class="muted" style="margin-top:5px">Due ${o.due || '—'}</div>${locked?'':`<div class="toolbar" style="margin-top:8px"><button class="btn small" onclick="setObjective(${o.id},'not_met',${id})">Not met</button><button class="btn small" onclick="setObjective(${o.id},'partially_met',${id})">Partially met</button><button class="btn small" onclick="setObjective(${o.id},'met',${id})">Met</button></div>`}</div>`).join('') || '<div class="empty">No objectives.</div>'}</div><div class="section-head"><div><h2>Check-ins</h2><p>Record weekly or biweekly manager notes.</p></div>${locked?'':`<button class="btn small" onclick="addPipCheckin(${id})">+ Check-in</button>`}</div><div class="activity">${p.checkins.map(c=>`<div class="activity-item"><span class="dot"></span><div><strong>${esc(c.date)}</strong><div>${esc(c.notes)}</div></div></div>`).join('') || '<div class="empty">No check-ins recorded.</div>'}</div>`,`<button class="btn" onclick="closeModal()">Close</button>${p.status==='closed'?'':`<button class="btn primary" onclick="changePipStatus(${id})">Update outcome</button>`}`)}
   function addPipObjective(id){openModal('Add PIP objective',`<div class="form-grid"><div class="field full"><label>Objective</label><input id="newPipObjective"></div><div class="field full"><label>Measurable success criteria</label><textarea id="newPipCriteria"></textarea></div><div class="field"><label>Due date</label><input id="newPipDue" type="date"></div></div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="savePipObjective(${id})">Add objective</button>`)}
   async function savePipObjective(id){try{await request('add_pip_objective',{method:'POST',body:JSON.stringify({pipId:id,objective:$('#newPipObjective').value.trim(),criteria:$('#newPipCriteria').value.trim(),due:$('#newPipDue').value})});closeModal();await refresh();openPip(id);}catch(err){toast(err.message);}}
   async function setObjective(id,status,pipId){try{await request('update_pip_objective',{method:'POST',body:JSON.stringify({id,status})});await refresh();openPip(pipId);toast('PIP objective updated.');}catch(err){toast(err.message);}}
   function addPipCheckin(id){openModal('Record PIP check-in',`<div class="form-grid"><div class="field"><label>Check-in date</label><input id="checkinDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div class="field full"><label>Manager notes</label><textarea id="checkinNotes" placeholder="Record progress, blockers, evidence and next steps"></textarea></div></div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="savePipCheckin(${id})">Record check-in</button>`)}
   async function savePipCheckin(id){try{await request('add_pip_checkin',{method:'POST',body:JSON.stringify({pipId:id,date:$('#checkinDate').value,notes:$('#checkinNotes').value.trim()})});closeModal();await refresh();openPip(id);}catch(err){toast(err.message);}}
-  function changePipStatus(id){const p=data.pips.find(x=>x.id===id);openModal('Update PIP outcome',`<div class="form-grid"><div class="field"><label>Status</label><select id="pipStatus">${['draft','active','extended','successful','unsuccessful','closed'].map(s=>`<option ${p.status===s?'selected':''}>${s}</option>`).join('')}</select></div><div class="field full"><label>Outcome note</label><textarea id="pipOutcomeNote" placeholder="Document the outcome or next step"></textarea></div></div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="savePipStatus(${id})">Save outcome</button>`)}
+  function changePipStatus(id){const p=data.pips.find(x=>x.id===id);if(!p)return;const allowed={draft:['draft','active','closed'],active:['active','extended','successful','unsuccessful','closed'],extended:['extended','successful','unsuccessful','closed'],successful:['successful','closed'],unsuccessful:['unsuccessful','closed'],closed:['closed']}[p.status]||[p.status];openModal('Update PIP outcome',`<div class="form-grid"><div class="field"><label>Status</label><select id="pipStatus">${allowed.map(s=>`<option ${p.status===s?'selected':''}>${s}</option>`).join('')}</select></div><div class="field full"><label>Outcome note</label><textarea id="pipOutcomeNote" placeholder="Required when extending, completing or closing a PIP"></textarea></div></div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="savePipStatus(${id})">Save outcome</button>`)}
   async function savePipStatus(id){try{await request('update_pip_status',{method:'POST',body:JSON.stringify({id,status:$('#pipStatus').value,note:$('#pipOutcomeNote').value.trim()})});closeModal();await refresh();toast('PIP outcome saved to the database.');}catch(err){toast(err.message);}}
 
-  function generateReport(){const ratings=data.employees.map(e=>e.rating).filter(v=>v!=null);const avg=ratings.reduce((a,b)=>a+b,0)/(ratings.length||1);const goal=data.goals.length?Math.round(data.goals.reduce((a,b)=>a+b.progress,0)/data.goals.length):0;const active=data.pips.filter(p=>['active','extended'].includes(p.status)).length;$('#reportOutput').innerHTML=`<strong>Team performance report generated — ${new Date().toLocaleDateString()}</strong><br><br>Average available rating: <strong>${avg.toFixed(1)}/5</strong><br>Average goal progress: <strong>${goal}%</strong><br>Direct reports: <strong>${data.employees.length}</strong><br>Active/extended PIPs: <strong>${active}</strong><br>Pending manager reviews: <strong>${data.employees.filter(e=>e.review!=='Manager submitted').length}</strong>`;toast('Report generated from live database data.');}
-  function exportCSV(){const header='Employee,Role,Rating,Review Status,Goals,PDP Progress\n';const body=data.employees.map(e=>[e.name,e.role,e.rating??'',e.review,e.goals,e.pdp].map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob([header+body],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='manager-team-performance.csv';a.click();URL.revokeObjectURL(a.href);}
+  function generateReport(){const ratings=data.employees.map(e=>e.rating).filter(v=>v!=null);const avg=ratings.reduce((a,b)=>a+b,0)/(ratings.length||1);const goal=data.goals.length?Math.round(data.goals.reduce((a,b)=>a+b.progress,0)/data.goals.length):0;const active=data.pips.filter(p=>['active','extended'].includes(p.status)).length;$('#reportOutput').innerHTML=`<strong>Team performance report generated — ${new Date().toLocaleDateString()}</strong><br><br>Average available rating: <strong>${ratings.length ? `${avg.toFixed(1)}/5` : 'No ratings available'}</strong><br>Average goal progress: <strong>${goal}%</strong><br>Direct reports: <strong>${data.employees.length}</strong><br>Active/extended PIPs: <strong>${active}</strong><br>Pending manager reviews: <strong>${data.employees.filter(e=>!reviewComplete(e)).length}</strong>`;toast('Report generated from live database data.');}
+  function exportCSV(){const header='Employee,Role,Rating,Review Status,Goals,PDP Progress\n';const body=data.employees.map(e=>[e.name,e.role,e.rating??'',e.review,e.goals,e.pdp].map(csvCell).join(',')).join('\n');const blob=new Blob(['\uFEFF'+header+body],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='manager-team-performance.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),0);}
 
-  async function markNotifications(){ toast('Notifications are derived from current database state; they will clear automatically when the underlying task is completed.'); }
+  async function markNotifications(){
+    const ids=data.notifications.filter(n=>n.unread).map(n=>n.id);
+    if(!ids.length)return toast('There are no unread notifications.');
+    try{await request('mark_notifications_read',{method:'POST',body:JSON.stringify({ids})});await refresh();toast('Notifications marked as read.');}catch(err){toast(err.message);}
+  }
 
   function wire() {
     $('#generateReportBtn').onclick=generateReport;
@@ -232,7 +263,14 @@
     $('#markNotifications').onclick=markNotifications;
     $('#logoutBtn').onclick=async()=>{if(confirm('Sign out of the manager dashboard?')){await request('logout',{method:'POST'}).catch(()=>{});window.location.href='index.html';}};
     $('#personalGoalBtn').onclick=newPersonalGoal;
-    $('#quickActionBtn').onclick=()=>openModal('Quick actions',`<div class="grid three"><button class="btn" onclick="closeModal();newGoal()">Create goal</button><button class="btn" onclick="closeModal();newPdp()">Create PDP</button><button class="btn" onclick="closeModal();newPip()">Start PIP</button><button class="btn" onclick="closeModal();showPage('reviews')">Open reviews</button><button class="btn" onclick="closeModal();showPage('reports')">Team report</button><button class="btn" onclick="closeModal();showPage('personal')">My dashboard</button></div>`,`<button class="btn" onclick="closeModal()">Close</button>`);
+    $('#newGoalBtn').onclick=()=>newGoal();
+    $('#newPdpBtn').onclick=()=>newPdp();
+    $('#newPipBtn').onclick=newPip;
+    $('#addGoalFromTeam').onclick=()=>newGoal();
+    $('#teamSearch').addEventListener('input',renderTeam);
+    $('#teamFilter').addEventListener('change',renderTeam);
+    $('#reviewFilter').addEventListener('change',renderReviews);
+    $('#quickActionBtn').onclick=()=>openModal('Quick actions',`<div class="grid three">${can('manager.goals')?'<button class="btn" onclick="closeModal();newGoal()">Create goal</button><button class="btn" onclick="closeModal();newPdp()">Create PDP</button>':''}${can('manager.pips')?'<button class="btn" onclick="closeModal();newPip()">Start PIP</button>':''}${can('manager.reviews')?'<button class="btn" onclick="closeModal();showPage(\'reviews\')">Open reviews</button>':''}${can('manager.reports')?'<button class="btn" onclick="closeModal();showPage(\'reports\')">Team report</button>':''}<button class="btn" onclick="closeModal();showPage('personal')">My dashboard</button></div>`,`<button class="btn" onclick="closeModal()">Close</button>`);
   }
 
   // Expose the new DB-backed functions for inline buttons already present in the page.

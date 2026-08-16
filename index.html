@@ -12,7 +12,7 @@
 <div class="login-container">
 
 <div class="logo">
-COMPANY LOGO
+P&amp;D TRACKER
 </div>
 
 <h2>Employee Performance & Development Tracker</h2>
@@ -21,21 +21,20 @@ COMPANY LOGO
 
 <form id="loginForm">
 
-<label>Email Address</label>
-<input type="email" id="email" required>
+<label for="email">Email Address</label>
+<input type="email" id="email" autocomplete="username" required>
 
-<label>Password</label>
-<input type="password" id="password" required>
+<label for="password">Password</label>
+<input type="password" id="password" autocomplete="current-password" required>
 
 <div class="options">
 
-<label style="font-weight:normal;">
-<label>
+<label for="rememberMe" class="remember-option">
     <input type="checkbox" id="rememberMe">
     Remember Me
 </label>
 
-<span style="font-size:12px;color:#6b7280;">Password changes are available after signing in.</span>
+<a href="forgot-password.html">Forgot password?</a>
 
 </div>
 
@@ -43,7 +42,7 @@ COMPANY LOGO
 
 </form>
 
-<div id="message"></div>
+<div id="message" role="status" aria-live="polite"></div>
 
 <div class="info">
 System checks user role and redirects to the correct dashboard:
@@ -56,7 +55,7 @@ System checks user role and redirects to the correct dashboard:
 </div>
 
 <div class="footer">
-Version 1.0.0 • support@company.com
+Version 1.0.0 • Internal system
 </div>
 
 </div>
