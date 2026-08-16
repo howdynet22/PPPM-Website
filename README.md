@@ -31,3 +31,14 @@ I focused on completing the manager side of the website for this update.
 5. Log in with `manager@demo.lk` and `password123`.
 
 Re-importing `schema.sql` will reset the demo database and remove existing test changes.
+
+## Demo data update
+
+- Added eight fictional employees with different roles and skill levels.
+- Added a completed review period and a current review period.
+- Added mixed review stages, ratings and manager summaries.
+- Added more peer nominations and anonymous 360 feedback.
+- Added completed, active, missed and not-started goals.
+- Added PDP actions with different progress levels and update notes.
+- Added active, extended and successful PIP examples.
+- Added sample notifications, login activity and audit records.
