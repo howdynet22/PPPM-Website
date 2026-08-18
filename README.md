@@ -1,5 +1,15 @@
 # PPPM Website
 
+## Code cleanup update
+
+- Moved all the page styling into one `css/styles.css` file.
+- Removed the CSS that was written inside the HTML pages and JavaScript.
+- Formatted the HTML, CSS, JavaScript, PHP and SQL so it is easier to read.
+- Split long code and generated HTML into proper lines instead of one huge line.
+- Added simple comments explaining what each main code section does.
+- Renamed unclear temporary variables where it made the code easier to follow.
+- Kept the website features and database behaviour the same.
+
 ## Manager dashboard update
 
 I focused on completing the manager side of the website for this update.
