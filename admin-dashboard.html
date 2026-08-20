@@ -1,23 +1,51 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>System Administrator Dashboard</title>
-<link rel="stylesheet" href="css/style.css">
-<style>body{margin:0;background:#f8fafc;font-family:Arial;color:#111827}.shell{max-width:980px;margin:70px auto;padding:24px}.card{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:24px;box-shadow:0 8px 25px rgba(0,0,0,.05)}.role{display:inline-block;padding:5px 9px;background:#eef2ff;border-radius:999px;font-size:12px;font-weight:700}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:18px}.item{border:1px solid #e5e7eb;border-radius:9px;padding:16px}.muted{color:#6b7280;font-size:13px}</style>
-</head>
-<body>
-<div class="shell"><div class="card">
-<p class="role" data-user-role>System Administrator</p>
-<h1>System Administrator Dashboard</h1>
-<p>Signed in as <strong data-user-name></strong> (<span data-user-email></span>).</p>
-<p class="muted">Access to this area is checked against your database role and permissions. Unauthorized users are redirected automatically.</p>
-<div class="grid">
-<div class="item" data-permission="admin.dashboard"><strong>Dashboard access</strong><p class="muted">Your system administrator dashboard permission is active.</p></div>
-<div class="item" data-permission="admin.users"><strong>Admin Users</strong><p class="muted">This permission is granted to your role in the database.</p></div>
-<div class="item" data-permission="admin.roles"><strong>Admin Roles</strong><p class="muted">This permission is granted to your role in the database.</p></div>
-</div>
-</div></div>
-<script src="Js/auth.js" data-roles="admin,leadership"></script>
-</body></html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>System Administrator Dashboard</title>
+    <!-- Shared page styles -->
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body class="placeholder-dashboard">
+    <!-- Administrator placeholder content -->
+    <main class="shell">
+      <div class="card">
+        <p class="role" data-user-role>System Administrator</p>
+        <h1>System Administrator Dashboard</h1>
+        <p>
+          Signed in as <strong data-user-name></strong> (<span
+            data-user-email
+          ></span
+          >).
+        </p>
+        <p class="muted">
+          Access to this area is checked against your database role and
+          permissions. Unauthorized users are redirected automatically.
+        </p>
+        <div class="grid">
+          <div class="item" data-permission="admin.dashboard">
+            <strong>Dashboard access</strong>
+            <p class="muted">
+              Your system administrator dashboard permission is active.
+            </p>
+          </div>
+          <div class="item" data-permission="admin.users">
+            <strong>Admin Users</strong>
+            <p class="muted">
+              This permission is granted to your role in the database.
+            </p>
+          </div>
+          <div class="item" data-permission="admin.roles">
+            <strong>Admin Roles</strong>
+            <p class="muted">
+              This permission is granted to your role in the database.
+            </p>
+          </div>
+        </div>
+      </div>
+    </main>
+    <!-- Authentication and permission checks -->
+    <script src="Js/auth.js" data-roles="admin,leadership"></script>
+  </body>
+</html>

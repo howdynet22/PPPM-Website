@@ -62,7 +62,7 @@ project/
   index.html
   manager-dashboard.html
   css/
-    style.css
+    styles.css
   Js/
     auth.js
     login.js

@@ -1,5 +1,7 @@
+# Prevent visitors from browsing the project directory.
 Options -Indexes
 
+# Add browser security and no-cache headers.
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
   Header always set X-Frame-Options "DENY"
@@ -11,6 +13,7 @@ Options -Indexes
   </FilesMatch>
 </IfModule>
 
+# Block direct access to configuration and database setup files.
 <FilesMatch "^(?:config\.php|schema\.sql|users\.txt|README-AUTH\.md)$">
   Require all denied
 </FilesMatch>

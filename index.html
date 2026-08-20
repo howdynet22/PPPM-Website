@@ -1,66 +1,62 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Employee Performance & Development Tracker</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Employee Performance & Development Tracker</title>
 
-<link rel="stylesheet" href="css/style.css">
-</head>
-<body>
+    <!-- Shared page styles -->
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body class="login-page">
+    <!-- Login form -->
+    <main class="login-container">
+      <div class="logo">P&amp;D TRACKER</div>
 
-<div class="login-container">
+      <h2>Employee Performance & Development Tracker</h2>
 
-<div class="logo">
-P&amp;D TRACKER
-</div>
+      <p class="subtitle">Sign in to continue</p>
 
-<h2>Employee Performance & Development Tracker</h2>
+      <form id="loginForm">
+        <label for="email">Email Address</label>
+        <input type="email" id="email" autocomplete="username" required />
 
-<p class="subtitle">Sign in to continue</p>
+        <label for="password">Password</label>
+        <input
+          type="password"
+          id="password"
+          autocomplete="current-password"
+          required
+        />
 
-<form id="loginForm">
+        <div class="options">
+          <label for="rememberMe" class="remember-option">
+            <input type="checkbox" id="rememberMe" />
+            Remember Me
+          </label>
 
-<label for="email">Email Address</label>
-<input type="email" id="email" autocomplete="username" required>
+          <a href="forgot-password.html">Forgot password?</a>
+        </div>
 
-<label for="password">Password</label>
-<input type="password" id="password" autocomplete="current-password" required>
+        <button type="submit">Sign In</button>
+      </form>
 
-<div class="options">
+      <div id="message" role="status" aria-live="polite"></div>
 
-<label for="rememberMe" class="remember-option">
-    <input type="checkbox" id="rememberMe">
-    Remember Me
-</label>
+      <div class="info">
+        System checks user role and redirects to the correct dashboard:
+        <ul class="role-list">
+          <li>System Administrator</li>
+          <li>HR</li>
+          <li>Manager</li>
+          <li>Employee</li>
+        </ul>
+      </div>
 
-<a href="forgot-password.html">Forgot password?</a>
+      <div class="footer">Version 1.0.0 • Internal system</div>
+    </main>
 
-</div>
-
-<button type="submit">Sign In</button>
-
-</form>
-
-<div id="message" role="status" aria-live="polite"></div>
-
-<div class="info">
-System checks user role and redirects to the correct dashboard:
-<ul style="margin-top:10px;margin-left:18px;">
-<li>System Administrator</li>
-<li>HR</li>
-<li>Manager</li>
-<li>Employee</li>
-</ul>
-</div>
-
-<div class="footer">
-Version 1.0.0 • Internal system
-</div>
-
-</div>
-
-
-<script src="Js/login.js"></script>
-</body>
+    <!-- Login functions -->
+    <script src="Js/login.js"></script>
+  </body>
 </html>
