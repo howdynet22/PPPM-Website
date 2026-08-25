@@ -38,13 +38,14 @@ I focused on completing the manager side of the website for this update.
 2. Start Apache and MySQL in XAMPP.
 3. Import `schema.sql` using phpMyAdmin.
 4. Open `http://localhost/pppm/index.html`.
-5. Log in with `manager@demo.lk` and `password123`.
+5. Log in with `kavindu@demo.lk` and `password123`.
 
 Re-importing `schema.sql` will reset the demo database and remove existing test changes.
 
 ## Demo data update
 
-- Added eight fictional employees with different roles and skill levels.
+- Added two managers with separate fictional teams for role-boundary testing.
+- Added eleven fictional employees with different roles and skill levels.
 - Added a completed review period and a current review period.
 - Added mixed review stages, ratings and manager summaries.
 - Added more peer nominations and anonymous 360 feedback.
