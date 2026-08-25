@@ -2,8 +2,12 @@ Demo database accounts (password for all accounts: password123)
 
 admin@demo.lk
 hr@demo.lk
-manager@demo.lk
+kavindu@demo.lk
+priyanka@demo.lk
 nimal@demo.lk
 amaya@demo.lk
 tharindu@demo.lk
 ishara@demo.lk
+akeel@demo.lk
+hana@demo.lk
+rishan@demo.lk

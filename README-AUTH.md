@@ -42,13 +42,26 @@ All seeded accounts initially use `password123`.
 
 - admin@demo.lk
 - hr@demo.lk
-- manager@demo.lk
+- kavindu@demo.lk
+- priyanka@demo.lk
 - nimal@demo.lk
 - amaya@demo.lk
 - tharindu@demo.lk
 - ishara@demo.lk
+- akeel@demo.lk
+- hana@demo.lk
+- rishan@demo.lk
 
 Change demo passwords before using the application with real data.
+
+### Manager teams
+
+- Kavindu Silva (`kavindu@demo.lk`) manages Nimal, Amaya, Tharindu, Ishara,
+  Sahan, Malini, Farah and Janith.
+- Priyanka Senanayake (`priyanka@demo.lk`) manages Akeel, Hana and Rishan.
+
+The separate reporting lines provide demo data for testing that one manager
+cannot view or modify employees assigned to the other manager.
 
 ## Required folder layout
 
@@ -79,7 +92,7 @@ Linux hosting is case-sensitive, so `Js` and `js` are not interchangeable.
 3. Import `schema.sql` in phpMyAdmin.
 4. Put the project under XAMPP's `htdocs` directory.
 5. Open `http://localhost/.../index.html`; do not use `file://`.
-6. Sign in with `manager@demo.lk` and `password123`.
+6. Sign in with `kavindu@demo.lk` or `priyanka@demo.lk` and `password123`.
 
 The supplied schema begins with `DROP DATABASE IF EXISTS perf_tracker`.
 Re-importing it resets the demo database and removes existing test changes.

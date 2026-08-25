@@ -593,7 +593,7 @@ VALUES
   (
     'E003',
     'Kavindu Silva',
-    'manager@demo.lk',
+    'kavindu@demo.lk',
     '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
     'manager',
     'Engineering Manager',
@@ -688,6 +688,50 @@ VALUES
     'Data & Insights',
     3,
     '2024-06-10'
+  ),
+  (
+    'E012',
+    'Priyanka Senanayake',
+    'priyanka@demo.lk',
+    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
+    'manager',
+    'Product Manager',
+    'Product',
+    2,
+    '2021-09-13'
+  ),
+  (
+    'E013',
+    'Akeel Nazeer',
+    'akeel@demo.lk',
+    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
+    'employee',
+    'Product Analyst',
+    'Product',
+    12,
+    '2023-03-06'
+  ),
+  (
+    'E014',
+    'Hana Fairooz',
+    'hana@demo.lk',
+    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
+    'employee',
+    'Business Analyst',
+    'Product',
+    12,
+    '2022-11-21'
+  ),
+  (
+    'E015',
+    'Rishan Mohamed',
+    'rishan@demo.lk',
+    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
+    'employee',
+    'UX Researcher',
+    'Product',
+    12,
+    '2024-01-08'
   );
 
 
@@ -2012,19 +2056,19 @@ INSERT INTO
   login_attempts (email, ip_address, success, attempted_at)
 VALUES
   (
-    'manager@demo.lk',
+    'kavindu@demo.lk',
     '127.0.0.1',
     1,
     '2026-08-10 08:55:00'
   ),
   (
-    'manager@demo.lk',
+    'kavindu@demo.lk',
     '127.0.0.1',
     0,
     '2026-08-11 09:01:00'
   ),
   (
-    'manager@demo.lk',
+    'kavindu@demo.lk',
     '127.0.0.1',
     1,
     '2026-08-11 09:02:00'
