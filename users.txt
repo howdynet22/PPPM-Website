@@ -11,3 +11,16 @@ ishara@demo.lk
 akeel@demo.lk
 hana@demo.lk
 rishan@demo.lk
+ceo@demo.lk
+engineering-head@demo.lk
+finance-head@demo.lk
+hr-head@demo.lk
+finance-manager@demo.lk
+accountant@demo.lk
+hr-executive@demo.lk
+
+Reporting paths:
+Nimal Jayasuriya -> Sahan de Alwis -> Kavindu Silva -> Ravi Sen -> Leena Raman
+Akeel Nazeer -> Priyanka Senanayake -> Ravi Sen -> Leena Raman
+Tara Dias -> Noah Peris -> Maya Fernando -> Leena Raman
+Anika Sen -> Sanduni Perera -> Imaan Ali -> Leena Raman

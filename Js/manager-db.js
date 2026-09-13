@@ -120,13 +120,14 @@
 
   // Render the overview KPIs, team snapshot and activity feed.
   function renderOverview() {
+    const performanceRows = data.employees.filter((e) => e.scope !== "Descendant");
     const ratings = data.employees
       .map((e) => e.rating)
       .filter((v) => v !== null && v !== undefined);
     const avg = ratings.reduce((a, b) => a + b, 0) / (ratings.length || 1);
     $("#kpiTeam").textContent = data.employees.length;
     $("#kpiRating").textContent = ratings.length ? avg.toFixed(1) + "/5" : "—";
-    $("#kpiReviews").textContent = data.employees.filter(
+    $("#kpiReviews").textContent = performanceRows.filter(
       (e) => !reviewComplete(e),
     ).length;
     const p = data.pdps.length
@@ -150,7 +151,7 @@
                 <div class="mini-avatar">${initials(employee.name)}</div>
                 <div>
                   <strong>${esc(employee.name)}</strong>
-                  <div class="muted">${esc(employee.role)}</div>
+                  <div class="muted">${esc(employee.role)} · ${esc(employee.scope || "")}</div>
                 </div>
               </div>
               <div>
@@ -173,24 +174,24 @@
               </div>
             </div>`;
         })
-        .join("") || '<div class="empty">No direct reports found.</div>';
+        .join("") || '<div class="empty">No organization records found.</div>';
 
-    const selfCount = data.employees.filter(
+    const selfCount = performanceRows.filter(
       (e) => e.review !== "Not started",
     ).length;
-    const peerCount = data.employees.reduce(
+    const peerCount = performanceRows.reduce(
       (n, e) => n + Number(data.feedback[e.id]?.responses || 0),
       0,
     );
-    const peerRequired = data.employees.reduce(
+    const peerRequired = performanceRows.reduce(
       (n, e) => n + Number(data.feedback[e.id]?.required || 0),
       0,
     );
-    const managerCount = data.employees.filter(reviewComplete).length;
+    const managerCount = performanceRows.filter(reviewComplete).length;
     $("#reviewMetrics").innerHTML = [
-      ["Self reviews", selfCount, data.employees.length],
+      ["Self reviews", selfCount, Math.max(performanceRows.length, 1)],
       ["Peer feedback", peerCount, Math.max(peerRequired, 1)],
-      ["Manager reviews", managerCount, data.employees.length],
+      ["Manager reviews", managerCount, Math.max(performanceRows.length, 1)],
     ]
       .map(([label, completed, total]) => {
         const percentage = Math.min(100, (completed / total) * 100);
@@ -272,7 +273,7 @@
         .map((employee) => {
           const rating =
             employee.rating != null ? employee.rating.toFixed(1) : "—";
-          const goalButtons = can("manager.goals")
+          const goalButtons = can("manager.goals") && employee.canCreateRecords
             ? `<button
                 class="btn small"
                 onclick="newGoal(${employee.id})"
@@ -293,7 +294,7 @@
                 <div class="mini-avatar">${initials(employee.name)}</div>
                 <div>
                   <strong>${esc(employee.name)}</strong>
-                  <div class="muted">${esc(employee.role)}</div>
+                  <div class="muted">${esc(employee.role)} · ${esc(employee.scope || "")}</div>
                 </div>
               </div>
             </td>
@@ -302,6 +303,7 @@
               <span class="status ${statusClass(employee.review)}">
                 ${esc(employee.review)}
               </span>
+              <div class="muted">${employee.reviewManager ? `Owner: ${esc(employee.reviewManager)}` : `Reports to: ${esc(employee.directManagerName || "Top level")}`}</div>
             </td>
             <td class="score">${rating}</td>
             <td>${employee.goals}</td>
@@ -331,7 +333,7 @@
   // Render manager reviews, peer nominations and anonymous feedback.
   function renderReviews() {
     const filter = $("#reviewFilter")?.value || "all";
-    let rows = data.employees;
+    let rows = data.employees.filter((employee) => employee.participantId);
     if (filter === "pending")
       rows = rows.filter((e) => e.review !== "Manager submitted");
     if (filter === "submitted")
@@ -362,7 +364,7 @@
             : '<span class="muted">No permission</span>';
 
           return `<tr>
-            <td>${esc(employee.name)}</td>
+            <td>${esc(employee.name)}<div class="muted">Review owner: ${esc(employee.reviewManager || data.manager.full_name || "—")}</div></td>
             <td>${esc(employee.cycle)}</td>
             <td>
               <span class="status ${statusClass(employee.review)}">
@@ -415,7 +417,7 @@
       '<tr><td colspan="4" class="empty">No peer nominations.</td></tr>';
 
     $("#feedbackCards").innerHTML =
-      data.employees
+      data.employees.filter((employee) => employee.participantId)
         .map((e) => {
           const f = data.feedback[e.id];
           if (!f || !f.available) {
@@ -468,7 +470,7 @@
       data.goals
         .map(
           (goal) => `<tr>
-            <td>${esc(goal.employee)}</td>
+            <td>${esc(goal.employee)}<div class="muted">Record owner: ${esc(data.manager.full_name || "—")}</div></td>
             <td>
               <strong>${esc(goal.title)}</strong>
               <div class="muted">${esc(goal.target)}</div>
@@ -495,7 +497,7 @@
       data.pdps
         .map(
           (action) => `<tr>
-            <td>${esc(action.employee)}</td>
+            <td>${esc(action.employee)}<div class="muted">Record owner: ${esc(data.manager.full_name || "—")}</div></td>
             <td>
               <strong>${esc(action.title)}</strong>
               <div class="muted">${esc(action.description || "")}</div>
@@ -527,7 +529,7 @@
       data.pips
         .map(
           (pip) => `<tr>
-            <td>${esc(pip.employee)}</td>
+            <td>${esc(pip.employee)}<div class="muted">Manager: ${esc(data.manager.full_name || "—")}</div></td>
             <td>${esc(pip.reason)}</td>
             <td>${pip.start} → ${pip.end}</td>
             <td>${pip.objectives.length}</td>
@@ -548,7 +550,8 @@
 
   // Render team performance and skill-gap reports.
   function renderReports() {
-    const ratings = data.employees
+    const performanceRows = data.employees.filter((employee) => employee.scope !== "Descendant");
+    const ratings = performanceRows
       .map((e) => e.rating)
       .filter((v) => v != null);
     const avg = ratings.reduce((a, b) => a + b, 0) / (ratings.length || 1);
@@ -557,7 +560,7 @@
           data.goals.reduce((a, b) => a + b.progress, 0) / data.goals.length,
         )
       : 0;
-    const gaps = data.employees.flatMap((e) =>
+    const gaps = performanceRows.flatMap((e) =>
       e.skills
         .filter((s) => s[2] < s[1])
         .map((s) => ({
@@ -574,7 +577,7 @@
     $("#reportPips").textContent = data.pips.filter((p) =>
       ["active", "extended"].includes(p.status),
     ).length;
-    $("#performanceChart").innerHTML = data.employees
+    $("#performanceChart").innerHTML = performanceRows
       .map((employee) => {
         const rating = employee.rating || 0;
         const barHeight = (rating / 5) * 150;
@@ -978,10 +981,11 @@
 
   // Open the team-goal form.
   function newGoal(employeeId) {
-    if (!data.employees.length)
+    const directReports = data.employees.filter((employee) => employee.canCreateRecords);
+    if (!directReports.length)
       return toast("No direct reports are available for a team goal.");
     const selectedEmployee = employeeById(employeeId);
-    const employeeOptions = data.employees
+    const employeeOptions = directReports
       .map(
         (employee) => `<option
           value="${employee.id}"
@@ -1155,10 +1159,11 @@
 
   // Open the personal-development action form.
   function newPdp(employeeId) {
-    if (!data.employees.length)
+    const directReports = data.employees.filter((employee) => employee.canCreateRecords);
+    if (!directReports.length)
       return toast("No direct reports are available for a PDP.");
     const selectedEmployee = employeeById(employeeId);
-    const employeeOptions = data.employees
+    const employeeOptions = directReports
       .map(
         (employee) => `<option
           value="${employee.id}"
@@ -1294,13 +1299,14 @@
 
   // Open the performance-improvement plan form.
   function newPip() {
-    if (!data.employees.length)
+    const directReports = data.employees.filter((employee) => employee.canCreateRecords);
+    if (!directReports.length)
       return toast("No direct reports are available for a PIP.");
     if (!data.hrOwners.length)
       return toast(
         "An active HR owner is required before a PIP can be created.",
       );
-    const employeeOptions = data.employees
+    const employeeOptions = directReports
       .map(
         (employee) => `<option value="${employee.id}">
           ${esc(employee.name)}
@@ -1686,7 +1692,9 @@
 
   // Generate a plain-language manager report from the current data.
   function generateReport() {
-    const ratings = data.employees
+    const performanceRows = data.employees.filter((employee) => employee.scope !== "Descendant");
+    const directReports = data.employees.filter((employee) => employee.scope === "Direct report");
+    const ratings = performanceRows
       .map((e) => e.rating)
       .filter((v) => v != null);
     const avg = ratings.reduce((a, b) => a + b, 0) / (ratings.length || 1);
@@ -1701,8 +1709,8 @@
     const ratingLabel = ratings.length
       ? `${avg.toFixed(1)}/5`
       : "No ratings available";
-    const pendingReviews = data.employees.filter(
-      (employee) => !reviewComplete(employee),
+    const pendingReviews = performanceRows.filter(
+      (employee) => employee.participantId && !reviewComplete(employee),
     ).length;
 
     $("#reportOutput").innerHTML = `
@@ -1712,7 +1720,7 @@
       <br><br>
       Average available rating: <strong>${ratingLabel}</strong><br>
       Average goal progress: <strong>${goal}%</strong><br>
-      Direct reports: <strong>${data.employees.length}</strong><br>
+      Direct reports: <strong>${directReports.length}</strong><br>
       Active/extended PIPs: <strong>${active}</strong><br>
       Pending manager reviews: <strong>${pendingReviews}</strong>`;
     toast("Report generated from live database data.");
@@ -1720,7 +1728,7 @@
   // Export the current team snapshot as a safe CSV file.
   function exportCSV() {
     const header = "Employee,Role,Rating,Review Status,Goals,PDP Progress\n";
-    const body = data.employees
+    const body = data.employees.filter((employee) => employee.scope !== "Descendant")
       .map((e) =>
         [e.name, e.role, e.rating ?? "", e.review, e.goals, e.pdp]
           .map(csvCell)

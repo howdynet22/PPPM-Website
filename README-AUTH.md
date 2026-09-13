@@ -2,9 +2,8 @@
 
 ## Current scope
 
-This increment completes the login/authentication layer and the database-backed
-Manager dashboard. Employee, HR and Administrator dashboards intentionally
-remain permission-protected placeholders for later increments.
+This increment includes login/authentication, the database-backed Manager
+dashboard and a permission-scoped organization hierarchy for every role.
 
 ## Included
 
@@ -12,7 +11,8 @@ remain permission-protected placeholders for later increments.
 - Database-backed login using `users.password_hash` and PHP `password_verify()`.
 - Database-backed role routing using `roles.dashboard_path`.
 - Database-backed RBAC using `permissions` and `role_permissions`.
-- Server-side permission and direct-report checks for every manager action.
+- Server-side permission and active primary-manager checks for new manager actions.
+- Unlimited descendant directory scope without inheriting sensitive record ownership.
 - Session authentication with strict-mode, HttpOnly and SameSite cookies.
 - 30-minute idle session expiry and session-ID regeneration.
 - CSRF tokens on every authenticated state-changing request.
@@ -36,6 +36,10 @@ remain permission-protected placeholders for later increments.
 - `employee`
 - `leadership` (currently routed to the Administrator placeholder)
 
+Job titles never grant permissions. `role` is the system role, `job_title` is
+the organizational position, and `reporting_relationships` contains the dated
+manager links.
+
 ## Demo credentials
 
 All seeded accounts initially use `password123`.
@@ -51,17 +55,26 @@ All seeded accounts initially use `password123`.
 - akeel@demo.lk
 - hana@demo.lk
 - rishan@demo.lk
+- ceo@demo.lk
+- engineering-head@demo.lk
+- finance-head@demo.lk
+- hr-head@demo.lk
+- finance-manager@demo.lk
+- accountant@demo.lk
+- hr-executive@demo.lk
 
 Change demo passwords before using the application with real data.
 
-### Manager teams
+### Reporting examples
 
-- Kavindu Silva (`kavindu@demo.lk`) manages Nimal, Amaya, Tharindu, Ishara,
-  Sahan, Malini, Farah and Janith.
-- Priyanka Senanayake (`priyanka@demo.lk`) manages Akeel, Hana and Rishan.
+- Nimal → Sahan (team lead) → Kavindu (manager) → Ravi (department head) → Leena (CEO).
+- Akeel → Priyanka (manager) → Ravi (department head) → Leena (CEO).
+- Tara → Noah (manager) → Maya (department head) → Leena (CEO).
+- Anika → Sanduni → Imaan (department head) → Leena (CEO).
 
-The separate reporting lines provide demo data for testing that one manager
-cannot view or modify employees assigned to the other manager.
+Nimal also has a closed historical primary relationship to Kavindu and a
+dotted-line relationship to Priyanka. Historical performance records continue
+to identify their originally assigned manager.
 
 ## Required folder layout
 
@@ -72,6 +85,8 @@ project/
   .htaccess
   api.php
   config.php
+  organization.php
+  org-structure.html
   index.html
   manager-dashboard.html
   css/
@@ -81,6 +96,9 @@ project/
     login.js
     forgot-password.js
     manager-db.js
+    organization.js
+  migrations/
+    001_organization.sql
 ```
 
 Linux hosting is case-sensitive, so `Js` and `js` are not interchangeable.
@@ -92,7 +110,7 @@ Linux hosting is case-sensitive, so `Js` and `js` are not interchangeable.
 3. Import `schema.sql` in phpMyAdmin.
 4. Put the project under XAMPP's `htdocs` directory.
 5. Open `http://localhost/.../index.html`; do not use `file://`.
-6. Sign in with `kavindu@demo.lk` or `priyanka@demo.lk` and `password123`.
+6. Sign in with an account in `users.txt` and `password123`.
 
 The supplied schema begins with `DROP DATABASE IF EXISTS perf_tracker`.
 Re-importing it resets the demo database and removes existing test changes.
@@ -121,9 +139,10 @@ PHP or host MySQL. This complete application requires a PHP/MySQL host.
 
 ## Security notes
 
-The browser may hide controls the current role cannot use, but that is only a
-usability feature. The API is authoritative: it checks the session, CSRF token,
-permission and manager-to-employee relationship before changing data.
+The browser may hide controls the current role cannot use, but the API is
+authoritative. Organization writes require a session, CSRF token and
+`org.structure.manage`; manager workflow writes additionally enforce the active
+primary manager or the business record's stored owner.
 
 Keep `.htaccess` in the web root. It disables directory listing, adds browser
 security headers and blocks direct access to configuration, schema, credential

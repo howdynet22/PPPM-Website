@@ -1,5 +1,20 @@
 # PPPM Website
 
+## Organization hierarchy
+
+The tracker now uses normalized `departments`, `teams` and effective-dated
+`reporting_relationships`. A user's `role` grants application permissions;
+their `job_title` describes their position; and the active primary reporting
+relationship determines their place in the organization. These three concepts
+are intentionally independent.
+
+The organization page supports searchable employees, department/team filters,
+expandable branches, reporting paths and HR/administrator assignment forms.
+Managers see directory information for direct reports and all descendants.
+Performance records remain protected by their own `manager_id` owner, so an
+ancestor does not automatically gain review, peer-feedback, goal, PDP or PIP
+ownership.
+
 ## Code cleanup update
 
 - Moved all the page styling into one `css/styles.css` file.
@@ -38,9 +53,30 @@ I focused on completing the manager side of the website for this update.
 2. Start Apache and MySQL in XAMPP.
 3. Import `schema.sql` using phpMyAdmin.
 4. Open `http://localhost/pppm/index.html`.
-5. Log in with `kavindu@demo.lk` and `password123`.
+5. Log in with any account in `users.txt`; all demo passwords are `password123`.
 
 Re-importing `schema.sql` will reset the demo database and remove existing test changes.
+
+After importing, `tests/organization_checks.sql` provides read-only checks for
+active-manager uniqueness, foreign-key integrity, the seeded reporting path,
+historical ownership and job-title/permission separation.
+
+### Upgrading an existing database
+
+Back up the database, then import `migrations/001_organization.sql` once. The
+migration converts text departments and current `users.manager_id` values into
+normalized records, updates the skill-gap view and then removes the deprecated
+columns. Existing review, goal, PDP and PIP manager IDs are retained as record
+ownership/history. Because the legacy schema stored no relationship dates, the
+employee's join date is used as the earliest available effective date and that
+inference is recorded in the relationship change note.
+
+Unused departments and teams can be deleted from the organization page. The API
+rejects deletion while employees or teams still reference the record. Active
+records can also be retained and disabled with `is_active`.
+
+Hierarchy traversal uses cycle-safe, level-by-level queries and does not depend on
+recursive CTE support.
 
 ## Demo data update
 

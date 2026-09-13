@@ -7,6 +7,7 @@ start_app_session();
 $action = $_GET["action"] ?? "";
 
 try {
+    if (str_starts_with((string) $action, "org_")) { organization_api((string) $action); }
     switch ($action) {
         // Login functions.
         case "login":
@@ -58,7 +59,7 @@ try {
             }
             $stmt = db()->prepare(
                 "SELECT u.id, u.emp_code, u.full_name, u.email, u.password_hash, u.role, " .
-                    "u.job_title, u.department, r.display_name AS role_name, r.dashboard_path FROM " .
+                    "u.job_title, (SELECT department_name FROM departments WHERE id=u.department_id) AS department, r.display_name AS role_name, r.dashboard_path FROM " .
                     "users u JOIN roles r ON r.role_code = u.role WHERE u.email = ? AND u.is_active = 1 " .
                     "AND r.is_active = 1 LIMIT 1",
             );
@@ -236,19 +237,48 @@ try {
                 $_SESSION["manager_dashboard_audited"] = true;
             }
 
+            // Show descendants as directory-only rows. Sensitive performance data
+            // remains limited to records explicitly owned by this manager.
+            $descendantIds = has_permission($mid, "org.descendants.view")
+                ? get_descendant_ids($mid)
+                : [];
+            $descendantClause = $descendantIds
+                ? " OR u.id IN (" . implode(",", array_fill(0, count($descendantIds), "?")) . ")"
+                : "";
             $stmt = $pdo->prepare(
-                "SELECT id, full_name AS name, job_title AS role, email, department FROM users " .
-                    "WHERE manager_id = ? AND role = 'employee' AND is_active = 1 ORDER BY full_name",
+                "SELECT u.id,u.full_name AS name,u.job_title AS role,u.email,d.department_name AS department,
+                 CASE WHEN ar.reports_to_employee_id=? THEN 'Direct report' ELSE 'Assigned records' END AS scope,
+                 ar.reports_to_employee_id AS directManagerId,direct_manager.full_name AS directManagerName
+                 FROM users u JOIN departments d ON d.id=u.department_id
+                 LEFT JOIN active_primary_relationships ar ON ar.employee_id=u.id
+                 LEFT JOIN users direct_manager ON direct_manager.id=ar.reports_to_employee_id
+                 WHERE u.is_active=1 AND u.id<>? AND (ar.reports_to_employee_id=?
+                   OR u.id IN (SELECT employee_id FROM review_participants WHERE manager_id=?)
+                   OR u.id IN (SELECT employee_id FROM goals WHERE manager_id=?)
+                   OR u.id IN (SELECT employee_id FROM pdps WHERE manager_id=?)
+                   OR u.id IN (SELECT employee_id FROM pips WHERE manager_id=?)" .
+                   $descendantClause . ") ORDER BY u.full_name"
             );
-            $stmt->execute([$mid]);
+            $stmt->execute(array_merge([$mid,$mid,$mid,$mid,$mid,$mid,$mid], $descendantIds));
             $employees = $stmt->fetchAll();
+
+            foreach ($employees as &$employeeScope) {
+                $employeeId = (int) $employeeScope["id"];
+                if ($employeeScope["scope"] !== "Direct report"
+                    && in_array($employeeId, $descendantIds, true)) {
+                    $employeeScope["scope"] = "Descendant";
+                }
+                $employeeScope["canCreateRecords"] = manager_employee($mid, $employeeId);
+            }
+            unset($employeeScope);
 
             foreach ($employees as &$e) {
                 $eid = (int) $e["id"];
                 $stmt = $pdo->prepare(
                     "SELECT rp.id participant_id, rp.cycle_id, rc.name cycle_name, rc.manager_deadline, " .
-                        "rp.status review_status, rp.final_rating rating, rp.manager_summary FROM " .
-                        "review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id WHERE " .
+                        "rp.status review_status, rp.final_rating rating, rp.manager_summary, " .
+                        "owner.full_name review_manager FROM review_participants rp " .
+                        "JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users owner ON owner.id=rp.manager_id WHERE " .
                         "rp.employee_id=? AND rp.manager_id=? ORDER BY rp.id DESC LIMIT 1",
                 );
                 $stmt->execute([$eid, $mid]);
@@ -260,6 +290,7 @@ try {
                 $e["reviewStatusCode"] =
                     $review["review_status"] ?? "not_started";
                 $e["managerSummary"] = $review["manager_summary"] ?? "";
+                $e["reviewManager"] = $review["review_manager"] ?? null;
                 $e["review"] = match (
                     $review["review_status"] ?? "not_started"
                 ) {
@@ -296,7 +327,7 @@ try {
                 );
                 $stmt->execute([$eid, $e["role"]]);
                 $skills = [];
-                foreach ($stmt->fetchAll() as $s) {
+                foreach ((manager_employee($mid, $eid) ? $stmt->fetchAll() : []) as $s) {
                     $skills[] = [
                         $s["name"],
                         (int) $s["required_level"],
@@ -310,10 +341,12 @@ try {
                     true,
                 );
                 $e["attention"] =
-                    ($e["rating"] !== null && $e["rating"] < 3.5) ||
-                    $reviewNeedsAction ||
-                    ($e["pdpActionCount"] > 0 && $e["pdp"] < 50) ||
-                    count(array_filter($skills, fn($s) => $s[2] < $s[1])) > 0;
+                    $e["scope"] !== "Descendant" && (
+                        ($e["rating"] !== null && $e["rating"] < 3.5) ||
+                        $reviewNeedsAction ||
+                        ($e["pdpActionCount"] > 0 && $e["pdp"] < 50) ||
+                        count(array_filter($skills, fn($s) => $s[2] < $s[1])) > 0
+                    );
             }
             unset($e);
 
@@ -576,6 +609,7 @@ try {
             $notifications = [];
             foreach ($employees as $e) {
                 if (
+                    $e["participantId"] &&
                     !in_array(
                         $e["reviewStatusCode"],
                         ["manager_submitted", "released"],

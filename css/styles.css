@@ -1142,6 +1142,41 @@ button {
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+/* Organization hierarchy */
+.org-page { background: #f4f7fb; }
+.org-shell { width: min(1440px, calc(100% - 32px)); margin: 24px auto 48px; display: grid; gap: 18px; }
+.org-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.org-header h1 { margin: 3px 0 8px; }
+.org-header-actions { display: flex; gap: 8px; }
+.org-message { min-height: 22px; color: #166534; font-weight: 700; }
+.org-message.error { color: #b91c1c; }
+.org-filters, .org-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.org-filters label, .org-form label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.org-filters input, .org-filters select, .org-form input, .org-form select, .org-form textarea { width: 100%; }
+.org-columns { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, .7fr); gap: 18px; }
+.org-tree details { margin: 8px 0; }
+.org-tree summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; }
+.org-tree summary::-webkit-details-marker { display: none; }
+.org-node-card { display: grid; gap: 2px; width: 100%; padding: 10px 12px; text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.org-node-card span, .org-node-card small { color: var(--muted); }
+.org-child-count { min-width: 24px; padding: 4px; border-radius: 999px; text-align: center; background: #e8eefc; }
+.org-children { margin-left: 24px; padding-left: 14px; border-left: 2px solid #dbe5f4; }
+.org-leaf { margin: 8px 0; }
+.org-path { display: grid; justify-items: stretch; }
+.org-path-node { display: grid; gap: 3px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.org-path-node span, .org-path-node small { color: var(--muted); font-size: 11px; }
+.org-path-arrow { text-align: center; padding: 4px; color: var(--muted); font-weight: 800; }
+.org-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.org-form { display: grid; gap: 12px; align-content: start; border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.org-form h3 { margin: 0; }
+.org-form .org-check { display: flex; align-items: center; grid-template-columns: auto 1fr; }
+.org-form .org-check input { width: auto; }
+.org-admin-list { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
+@media (max-width: 800px) {
+  .org-header { align-items: flex-start; flex-direction: column; }
+  .org-columns, .org-form-grid, .org-filters { grid-template-columns: 1fr; }
+}
 .btn:focus-visible,
 .nav-btn:focus-visible,
 input:focus-visible,

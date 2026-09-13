@@ -27,6 +27,9 @@
         >
           My Team
         </button>
+        <a class="nav-btn" href="org-structure.html" data-permission="org.structure.view">
+          Organization hierarchy
+        </a>
         <button
           class="nav-btn"
           data-page="reviews"
@@ -79,7 +82,7 @@
             <div class="card kpi">
               <div class="label">Team members</div>
               <div class="value" id="kpiTeam">—</div>
-              <div class="sub">Direct reports</div>
+              <div class="sub">Direct reports and descendants</div>
             </div>
             <div class="card kpi">
               <div class="label">Average performance</div>
@@ -155,13 +158,13 @@
           </div>
         </section>
 
-        <!-- Direct reports page -->
+        <!-- Organization-scoped team page -->
         <section class="page" id="page-team">
           <div class="card">
             <div class="section-head">
               <div>
                 <h2>My Team</h2>
-                <p>Only employees assigned to you are shown.</p>
+                <p>Direct reports, permitted descendants and your assigned historical records.</p>
               </div>
               <div class="toolbar">
                 <input
@@ -658,7 +661,7 @@
         ],
         team: [
           "My Team",
-          "View direct reports and take employee performance actions.",
+          "View direct reports and permitted organizational descendants.",
         ],
         reviews: [
           "Reviews & Feedback",

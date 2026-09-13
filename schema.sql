@@ -149,6 +149,28 @@ WHERE
   );
 
 
+CREATE TABLE departments (
+ id INT AUTO_INCREMENT PRIMARY KEY,
+ department_code VARCHAR(30) NOT NULL UNIQUE,
+ department_name VARCHAR(80) NOT NULL UNIQUE,
+ head_employee_id INT NULL,
+ is_active TINYINT(1) NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+CREATE TABLE teams (
+ id INT AUTO_INCREMENT PRIMARY KEY,
+ department_id INT NOT NULL,
+ team_code VARCHAR(30) NOT NULL UNIQUE,
+ team_name VARCHAR(80) NOT NULL,
+ team_lead_employee_id INT NULL,
+ is_active TINYINT(1) NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ UNIQUE KEY uq_team_department (id,department_id),
+ FOREIGN KEY (department_id) REFERENCES departments(id)
+);
+
 CREATE TABLE users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   emp_code VARCHAR(20) NOT NULL UNIQUE,
@@ -157,19 +179,48 @@ CREATE TABLE users (
   password_hash VARCHAR(255) NOT NULL,
   role VARCHAR(30) NOT NULL DEFAULT 'employee',
   job_title VARCHAR(100),
-  department VARCHAR(80),
-  manager_id INT NULL,
+  department_id INT NOT NULL,
+  team_id INT NULL,
   date_joined DATE,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_user_manager FOREIGN KEY (manager_id) REFERENCES users (id),
+  CONSTRAINT fk_user_department FOREIGN KEY (department_id) REFERENCES departments(id),
+  CONSTRAINT fk_user_team_department FOREIGN KEY (team_id,department_id) REFERENCES teams(id,department_id),
   CONSTRAINT fk_user_role FOREIGN KEY (role) REFERENCES roles (role_code)
 );
 
 
--- NOTE: "manager" is both a role AND a relationship. The role controls what
--- menus you see; manager_id controls WHOSE data you can see. A manager can
--- only ever open reviews of people whose manager_id = their own id.
+ALTER TABLE departments ADD CONSTRAINT fk_department_head FOREIGN KEY (head_employee_id) REFERENCES users(id);
+ALTER TABLE teams ADD CONSTRAINT fk_team_lead FOREIGN KEY (team_lead_employee_id) REFERENCES users(id);
+CREATE TABLE reporting_relationships (
+ id INT AUTO_INCREMENT PRIMARY KEY,
+ employee_id INT NOT NULL,
+ reports_to_employee_id INT NOT NULL,
+ relationship_type ENUM('primary','dotted_line') NOT NULL DEFAULT 'primary',
+ effective_from DATE NOT NULL,
+ effective_to DATE NULL,
+ created_by INT NOT NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ change_reason VARCHAR(255) NULL,
+ open_primary_employee_id INT GENERATED ALWAYS AS
+   (CASE WHEN relationship_type='primary' AND effective_to IS NULL THEN employee_id ELSE NULL END) STORED,
+ UNIQUE KEY uq_open_primary (open_primary_employee_id),
+ CONSTRAINT chk_not_self CHECK (employee_id <> reports_to_employee_id),
+ CONSTRAINT chk_relationship_dates CHECK (effective_to IS NULL OR effective_to > effective_from),
+ FOREIGN KEY (employee_id) REFERENCES users(id),
+ FOREIGN KEY (reports_to_employee_id) REFERENCES users(id),
+ FOREIGN KEY (created_by) REFERENCES users(id),
+ INDEX idx_rr_employee (employee_id,relationship_type,effective_from,effective_to),
+ INDEX idx_rr_manager (reports_to_employee_id,relationship_type,effective_from,effective_to)
+);
+-- Serialize organization writes to prevent concurrent cycle/overlap races.
+CREATE TABLE organization_lock (id INT PRIMARY KEY);
+INSERT INTO organization_lock VALUES (1);
+CREATE VIEW active_primary_relationships AS
+ SELECT * FROM reporting_relationships
+ WHERE relationship_type='primary' AND effective_from<=CURRENT_DATE
+ AND (effective_to IS NULL OR effective_to>CURRENT_DATE);
+
 -- Authentication throttling. Successful and failed attempts are retained so
 -- repeated failures can be limited without revealing whether an account exists.
 CREATE TABLE login_attempts (
@@ -534,7 +585,7 @@ CREATE OR REPLACE VIEW v_skill_gaps AS
 SELECT
   u.id AS employee_id,
   u.full_name,
-  u.department,
+  d.department_name AS department,
   u.job_title,
   s.name AS skill,
   r.required_level,
@@ -542,6 +593,7 @@ SELECT
   r.required_level - COALESCE(es.current_level, 0) AS gap
 FROM
   users u
+  JOIN departments d ON d.id = u.department_id
   JOIN role_skill_requirements r ON r.job_title = u.job_title
   JOIN skills s ON s.id = r.skill_id
   LEFT JOIN employee_skills es ON es.employee_id = u.id
@@ -555,185 +607,56 @@ WHERE
 --  All passwords below are the plain text 'password123' hashed
 --  with PHP password_hash(). Use it to log in while testing.
 -- ============================================================
-INSERT INTO
-  users (
-    emp_code,
-    full_name,
-    email,
-    password_hash,
-    role,
-    job_title,
-    department,
-    manager_id,
-    date_joined
-  )
-VALUES
-  (
-    'E001',
-    'Sanduni Perera',
-    'hr@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'hr',
-    'HR Manager',
-    'Human Resources',
-    NULL,
-    '2021-01-10'
-  ),
-  (
-    'E002',
-    'Dilan Fernando',
-    'admin@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'admin',
-    'Chief Executive',
-    'Executive',
-    NULL,
-    '2019-03-01'
-  ),
-  (
-    'E003',
-    'Kavindu Silva',
-    'kavindu@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'manager',
-    'Engineering Manager',
-    'Engineering',
-    2,
-    '2020-06-15'
-  ),
-  (
-    'E004',
-    'Nimal Jayasuriya',
-    'nimal@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'employee',
-    'Junior Developer',
-    'Engineering',
-    3,
-    '2024-02-01'
-  ),
-  (
-    'E005',
-    'Amaya Rathnayake',
-    'amaya@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'employee',
-    'Software Engineer',
-    'Engineering',
-    3,
-    '2022-08-20'
-  ),
-  (
-    'E006',
-    'Tharindu Bandara',
-    'tharindu@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'employee',
-    'QA Engineer',
-    'Engineering',
-    3,
-    '2023-05-05'
-  ),
-  (
-    'E007',
-    'Ishara Gunasekara',
-    'ishara@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'employee',
-    'Software Engineer',
-    'Engineering',
-    3,
-    '2023-11-11'
-  ),
-  (
-    'E008',
-    'Sahan de Alwis',
-    'sahan@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'employee',
-    'Senior Software Engineer',
-    'Engineering',
-    3,
-    '2021-04-19'
-  ),
-  (
-    'E009',
-    'Malini Wijesinghe',
-    'malini@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'employee',
-    'UI/UX Designer',
-    'Product Design',
-    3,
-    '2022-10-03'
-  ),
-  (
-    'E010',
-    'Farah Iqbal',
-    'farah@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'employee',
-    'DevOps Engineer',
-    'Engineering',
-    3,
-    '2023-01-16'
-  ),
-  (
-    'E011',
-    'Janith Perera',
-    'janith@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'employee',
-    'Data Analyst',
-    'Data & Insights',
-    3,
-    '2024-06-10'
-  ),
-  (
-    'E012',
-    'Priyanka Senanayake',
-    'priyanka@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'manager',
-    'Product Manager',
-    'Product',
-    2,
-    '2021-09-13'
-  ),
-  (
-    'E013',
-    'Akeel Nazeer',
-    'akeel@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'employee',
-    'Product Analyst',
-    'Product',
-    12,
-    '2023-03-06'
-  ),
-  (
-    'E014',
-    'Hana Fairooz',
-    'hana@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'employee',
-    'Business Analyst',
-    'Product',
-    12,
-    '2022-11-21'
-  ),
-  (
-    'E015',
-    'Rishan Mohamed',
-    'rishan@demo.lk',
-    '$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou',
-    'employee',
-    'UX Researcher',
-    'Product',
-    12,
-    '2024-01-08'
-  );
-
+INSERT INTO departments(id,department_code,department_name) VALUES (1,'EXEC','Executive'),(2,'HR','Human Resources'),(3,'ENG','IT/Engineering'),(4,'FIN','Finance');
+INSERT INTO teams(id,department_id,team_code,team_name) VALUES (1,3,'PLATFORM','Platform'),(2,3,'PRODUCT','Product'),(3,4,'ACCOUNTS','Accounts'),(4,2,'PEOPLE','People Operations');
+INSERT INTO users(emp_code,full_name,email,password_hash,role,job_title,department_id,team_id,date_joined) VALUES
+('E001','Sanduni Perera','hr@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','hr','HR Manager',2,4,'2021-01-10'),
+('E002','Dilan Fernando','admin@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','admin','System Administrator',1,NULL,'2019-03-01'),
+('E003','Kavindu Silva','kavindu@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Engineering Manager',3,1,'2020-06-15'),
+('E004','Nimal Jayasuriya','nimal@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Junior Developer',3,1,'2024-02-01'),
+('E005','Amaya Rathnayake','amaya@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Software Engineer',3,1,'2022-08-20'),
+('E006','Tharindu Bandara','tharindu@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','QA Engineer',3,1,'2023-05-05'),
+('E007','Ishara Gunasekara','ishara@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Software Engineer',3,1,'2023-11-11'),
+('E008','Sahan de Alwis','sahan@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Team Lead',3,1,'2021-04-19'),
+('E009','Malini Wijesinghe','malini@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','UI/UX Designer',3,1,'2022-10-03'),
+('E010','Farah Iqbal','farah@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','DevOps Engineer',3,1,'2023-01-16'),
+('E011','Janith Perera','janith@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Data Analyst',3,1,'2024-06-10'),
+('E012','Priyanka Senanayake','priyanka@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Product Manager',3,2,'2021-09-13'),
+('E013','Akeel Nazeer','akeel@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Product Analyst',3,2,'2023-03-06'),
+('E014','Hana Fairooz','hana@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Business Analyst',3,2,'2022-11-21'),
+('E015','Rishan Mohamed','rishan@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','UX Researcher',3,2,'2024-01-08'),
+('E016','Leena Raman','ceo@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','leadership','Chief Executive',1,NULL,'2020-01-01'),
+('E017','Ravi Sen','engineering-head@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Engineering Director',3,NULL,'2020-01-01'),
+('E018','Maya Fernando','finance-head@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Finance Director',4,NULL,'2020-01-01'),
+('E019','Imaan Ali','hr-head@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','hr','HR Director',2,NULL,'2020-01-01'),
+('E020','Noah Peris','finance-manager@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Finance Manager',4,3,'2020-01-01'),
+('E021','Tara Dias','accountant@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Accountant',4,3,'2020-01-01'),
+('E022','Anika Sen','hr-executive@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','HR Executive',2,4,'2020-01-01');
+INSERT INTO reporting_relationships(employee_id,reports_to_employee_id,effective_from,created_by,change_reason) VALUES
+(1,19,'2020-01-01',2,'Fictional demo hierarchy'),
+(2,16,'2020-01-01',2,'Fictional demo hierarchy'),
+(3,17,'2020-01-01',2,'Fictional demo hierarchy'),
+(4,8,'2026-07-01',2,'Fictional demo hierarchy'),
+(5,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(6,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(7,8,'2020-01-01',2,'Fictional demo hierarchy'),
+(8,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(9,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(10,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(11,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(12,17,'2020-01-01',2,'Fictional demo hierarchy'),
+(13,12,'2020-01-01',2,'Fictional demo hierarchy'),
+(14,12,'2020-01-01',2,'Fictional demo hierarchy'),
+(15,12,'2020-01-01',2,'Fictional demo hierarchy'),
+(17,16,'2020-01-01',2,'Fictional demo hierarchy'),
+(18,16,'2020-01-01',2,'Fictional demo hierarchy'),
+(19,16,'2020-01-01',2,'Fictional demo hierarchy'),
+(20,18,'2020-01-01',2,'Fictional demo hierarchy'),
+(21,20,'2020-01-01',2,'Fictional demo hierarchy'),
+(22,1,'2020-01-01',2,'Fictional demo hierarchy');
+INSERT INTO reporting_relationships(employee_id,reports_to_employee_id,relationship_type,effective_from,effective_to,created_by,change_reason) VALUES (4,3,'primary','2020-01-01','2026-07-01',2,'Moved to Platform team lead'),(4,12,'dotted_line','2026-07-01',NULL,2,'Cross-team collaboration');
+UPDATE departments SET head_employee_id=CASE id WHEN 1 THEN 16 WHEN 2 THEN 19 WHEN 3 THEN 17 WHEN 4 THEN 18 END;
+UPDATE teams SET team_lead_employee_id=CASE id WHEN 1 THEN 8 WHEN 2 THEN 12 WHEN 3 THEN 20 WHEN 4 THEN 1 END;
 
 INSERT INTO
   competencies (name, description)
@@ -2171,3 +2094,15 @@ VALUES
     '127.0.0.1',
     '2026-08-14 15:30:00'
   );
+
+INSERT INTO permissions(permission_code,description) VALUES
+ ('org.structure.view','View own reporting path and scoped organization'),
+ ('org.structure.manage','Manage organization assignments'),
+ ('org.descendants.view','View descendant directory information'),
+ ('org.structure.view_all','View organization-wide directory');
+INSERT INTO role_permissions(role_code,permission_id)
+ SELECT r.role_code,p.id FROM roles r CROSS JOIN permissions p
+ WHERE p.permission_code='org.structure.view'
+ OR (p.permission_code='org.descendants.view' AND r.role_code IN ('manager','hr','admin','leadership'))
+ OR (p.permission_code='org.structure.manage' AND r.role_code IN ('hr','admin'))
+ OR (p.permission_code='org.structure.view_all' AND r.role_code IN ('hr','admin','leadership'));
