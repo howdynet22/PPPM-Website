@@ -1,26 +1,18 @@
-Demo database accounts (password for all accounts: password123)
+Fictional demo accounts — not company data. All passwords: password123
 
-admin@demo.lk
-hr@demo.lk
-kavindu@demo.lk
-priyanka@demo.lk
-nimal@demo.lk
-amaya@demo.lk
-tharindu@demo.lk
-ishara@demo.lk
-akeel@demo.lk
-hana@demo.lk
-rishan@demo.lk
-ceo@demo.lk
-engineering-head@demo.lk
-finance-head@demo.lk
-hr-head@demo.lk
-finance-manager@demo.lk
-accountant@demo.lk
-hr-executive@demo.lk
+avery@demo.pppm.test   Avery Lane      CEO / leadership
+morgan@demo.pppm.test  Morgan Reed     Operations Director / manager
+jordan@demo.pppm.test  Jordan Ellis    Department Manager / manager
+casey@demo.pppm.test   Casey Brooks    Team Lead / manager
+riley@demo.pppm.test   Riley Hart      Head of People / hr
+taylor@demo.pppm.test  Taylor Quinn    HR Business Partner / hr_partner
+sam@demo.pppm.test     Sam Rowan       HR Coordinator / hr_coordinator
+alex@demo.pppm.test    Alex Morgan     Product Specialist / employee
+jamie@demo.pppm.test   Jamie Vale      Operations Analyst / employee
+drew@demo.pppm.test    Drew Parker     Support Specialist / employee
+blair@demo.pppm.test   Blair Hayes     Project Coordinator / employee
+quinn@demo.pppm.test   Quinn River     Business Analyst / employee
 
-Reporting paths:
-Nimal Jayasuriya -> Sahan de Alwis -> Kavindu Silva -> Ravi Sen -> Leena Raman
-Akeel Nazeer -> Priyanka Senanayake -> Ravi Sen -> Leena Raman
-Tara Dias -> Noah Peris -> Maya Fernando -> Leena Raman
-Anika Sen -> Sanduni Perera -> Imaan Ali -> Leena Raman
+Everyone except Avery also has an employee workspace and personal development plan.
+Seed: php scripts/demo.php seed
+Recreate only registered demo records: php scripts/demo.php reset

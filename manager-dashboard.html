@@ -55,13 +55,14 @@
           Reports & Insights
         </button>
         <div class="nav-title">Personal</div>
-        <button class="nav-btn" data-page="personal">My Dashboard</button>
+        <a class="nav-btn" href="employee-dashboard.html">Employee workspace</a>
         <button class="nav-btn" data-page="notifications">Notifications</button>
         <div class="sidebar-bottom">
           <button class="nav-btn" id="logoutBtn">Sign out</button>
         </div>
       </aside>
       <main class="main">
+        <p id="managerSync" role="status" aria-live="polite">Loading team data…</p>
         <!-- Current page heading and quick actions -->
         <header class="topbar">
           <div class="title">
@@ -459,95 +460,6 @@
           </div>
         </section>
 
-        <!-- Manager's personal dashboard page -->
-        <section class="page" id="page-personal">
-          <div class="grid two">
-            <div class="card">
-              <div class="profile-card">
-                <div class="profile-avatar" id="personalInitials">—</div>
-                <div>
-                  <h2 id="personalName" class="profile-name">
-                    Loading profile…
-                  </h2>
-                  <p class="muted profile-meta" id="personalMeta">
-                    Manager profile
-                  </p>
-                </div>
-              </div>
-              <div class="detail-grid profile-details">
-                <div class="detail-box">
-                  <small>Latest rating</small
-                  ><strong id="personalRating">—</strong>
-                </div>
-                <div class="detail-box">
-                  <small>Active goals</small
-                  ><strong id="personalGoalCount">0</strong>
-                </div>
-                <div class="detail-box">
-                  <small>PDP steps</small
-                  ><strong id="personalPdpProgress">—</strong>
-                </div>
-              </div>
-            </div>
-            <div class="card">
-              <div class="section-head">
-                <div>
-                  <h2>My review tasks</h2>
-                  <p>
-                    Your own review and development status from the database.
-                  </p>
-                </div>
-              </div>
-              <div class="checklist" id="personalTasks">
-                <div class="empty">No active personal review tasks.</div>
-              </div>
-            </div>
-          </div>
-          <div class="grid three section-spacing">
-            <div class="card">
-              <div class="section-head">
-                <div>
-                  <h2>My goals</h2>
-                  <p>Personal goals stored in the database.</p>
-                </div>
-                <button
-                  class="btn primary"
-                  id="personalGoalBtn"
-                  data-permission="manager.goals"
-                >
-                  + Goal
-                </button>
-              </div>
-              <div id="personalGoals"></div>
-            </div>
-            <div class="card">
-              <div class="section-head">
-                <div>
-                  <h2>My development</h2>
-                  <p>Personal PDP actions as checkable steps.</p>
-                </div>
-                <button
-                  class="btn primary"
-                  id="personalPdpBtn"
-                  data-permission="manager.goals"
-                >
-                  + PDP
-                </button>
-              </div>
-              <div id="personalPdp" class="activity"></div>
-            </div>
-            <div class="card">
-              <div class="section-head">
-                <div>
-                  <h2>My 360° feedback</h2>
-                  <p>Aggregated feedback with identities hidden.</p>
-                </div>
-              </div>
-              <div id="personalFeedback" class="metric-list"></div>
-            </div>
-          </div>
-        </section>
-
         <!-- Manager notifications page -->
         <section class="page" id="page-notifications">
           <div class="card">
@@ -760,6 +672,7 @@
       });
     </script>
     <!-- Database-backed manager functions -->
+    <script src="Js/work-items.js"></script>
     <script src="Js/manager-db.js"></script>
     <!-- Authentication and permission checks -->
     <script src="Js/auth.js" data-roles="manager"></script>
