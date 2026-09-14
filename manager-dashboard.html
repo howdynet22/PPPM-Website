@@ -95,9 +95,9 @@
               <div class="sub">Self / manager review tasks</div>
             </div>
             <div class="card kpi">
-              <div class="label">Development progress</div>
+              <div class="label">Development steps</div>
               <div class="value" id="kpiPdp">—</div>
-              <div class="sub">Average PDP action progress</div>
+              <div class="sub">Completed PDP steps</div>
             </div>
           </div>
           <div class="grid two">
@@ -294,7 +294,7 @@
             <div class="section-head">
               <div>
                 <h2>Goals & Personal Development Plans</h2>
-                <p>Create team goals, track progress and manage PDP actions.</p>
+                <p>Create goals and PDPs as concrete, checkable steps.</p>
               </div>
               <div class="toolbar">
                 <button
@@ -325,7 +325,7 @@
                       <th>Employee</th>
                       <th>Goal</th>
                       <th>Target / due</th>
-                      <th>Progress</th>
+                      <th>Steps</th>
                       <th>Status</th>
                       <th>Action</th>
                     </tr>
@@ -342,7 +342,7 @@
                       <th>Employee</th>
                       <th>PDP action</th>
                       <th>Due</th>
-                      <th>Progress</th>
+                      <th>Steps</th>
                       <th>Status</th>
                       <th>Action</th>
                     </tr>
@@ -361,8 +361,8 @@
               <div>
                 <h2>Performance Improvement Plans</h2>
                 <p>
-                  Initiate measurable PIPs, define objectives and record
-                  check-ins. HR ownership is required for each PIP.
+                  Define PIP objectives as actionable steps and record check-ins.
+                  HR ownership is required for each PIP.
                 </p>
               </div>
               <button
@@ -384,7 +384,7 @@
                     <th>Employee</th>
                     <th>Reason</th>
                     <th>Period</th>
-                    <th>Objectives</th>
+                    <th>Steps</th>
                     <th>Status</th>
                     <th>Action</th>
                   </tr>
@@ -405,8 +405,8 @@
             </div>
             <div class="card kpi">
               <div class="label">Goal completion</div>
-              <div class="value" id="reportGoal">0%</div>
-              <div class="sub">Team goal progress</div>
+              <div class="value" id="reportGoal">0/0 steps</div>
+              <div class="sub">Completed team-goal steps</div>
             </div>
             <div class="card kpi">
               <div class="label">Skill gaps</div>
@@ -484,7 +484,7 @@
                   ><strong id="personalGoalCount">0</strong>
                 </div>
                 <div class="detail-box">
-                  <small>PDP progress</small
+                  <small>PDP steps</small
                   ><strong id="personalPdpProgress">—</strong>
                 </div>
               </div>
@@ -524,8 +524,15 @@
               <div class="section-head">
                 <div>
                   <h2>My development</h2>
-                  <p>Personal PDP actions and progress.</p>
+                  <p>Personal PDP actions as checkable steps.</p>
                 </div>
+                <button
+                  class="btn primary"
+                  id="personalPdpBtn"
+                  data-permission="manager.goals"
+                >
+                  + PDP
+                </button>
               </div>
               <div id="personalPdp" class="activity"></div>
             </div>
@@ -669,11 +676,11 @@
         ],
         goals: [
           "Goals & PDPs",
-          "Create goals, approve progress and manage personal development actions.",
+          "Create goals and manage concrete personal development steps.",
         ],
         pips: [
           "Performance Improvement",
-          "Manage measurable PIPs and record progress check-ins.",
+          "Manage actionable PIP steps and record check-ins.",
         ],
         reports: [
           "Reports & Insights",

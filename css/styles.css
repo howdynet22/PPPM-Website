@@ -1049,6 +1049,57 @@ button {
   font-size: 10px;
 }
 
+.work-steps {
+  margin-top: 12px;
+}
+
+.work-step-summary,
+.work-step-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.work-step-summary {
+  margin-bottom: 8px;
+}
+
+.work-step-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.work-step {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.work-step.is-complete .work-step-check span {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.work-step-check {
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.work-step-check input {
+  margin-top: 3px;
+}
+
+.work-step-meta {
+  margin-top: 8px;
+  padding-left: 22px;
+}
+
 .notification-item {
   padding: 11px 0;
   border-bottom: 1px solid var(--line);

@@ -72,6 +72,107 @@
     </div>`;
   }
 
+  function stepCounts(steps = []) {
+    const completed = steps.filter((step) => step.completed).length;
+    return {
+      completed,
+      total: steps.length,
+      label: `${completed}/${steps.length} steps`,
+    };
+  }
+
+  function stepsFromInput(selector) {
+    return ($(selector)?.value || "")
+      .split(/\r?\n/)
+      .map((title) => title.trim())
+      .filter(Boolean)
+      .map((title) => ({ title }));
+  }
+
+  function findWorkStep(id) {
+    const groups = [
+      ...data.goals.map((item) => item.steps || []),
+      ...data.pdps.map((item) => item.steps || []),
+      ...(data.personal?.goals || []).map((item) => item.steps || []),
+      ...(data.personal?.pdp || []).map((item) => item.steps || []),
+      ...data.pips.flatMap((pip) =>
+        pip.objectives.map((objective) => objective.steps || []),
+      ),
+    ];
+    return groups.flat().find((step) => Number(step.id) === Number(id));
+  }
+
+  function workStepsMarkup(
+    steps,
+    type,
+    workId,
+    returnId = workId,
+    locked = false,
+  ) {
+    const list = steps || [];
+    const canEditSet =
+      !locked && list.length > 0 && list.every((step) => step.canEdit);
+    const rows = list
+      .map(
+        (step) => `<li class="work-step ${step.completed ? "is-complete" : ""}">
+          <label class="check-row work-step-check">
+            <input
+              type="checkbox"
+              ${step.completed ? "checked" : ""}
+              ${locked ? "disabled" : ""}
+              onchange="toggleWorkStep(
+                ${step.id},
+                this.checked,
+                '${type}',
+                ${workId},
+                ${returnId}
+              )"
+            >
+            <span>${esc(step.title)}</span>
+          </label>
+          <div class="work-step-meta">
+            <small class="muted">Set by ${esc(step.creator)}</small>
+            ${
+              !locked && step.canEdit
+                ? `<span class="action-group">
+                    <button
+                      class="btn small"
+                      onclick="editWorkStep(${step.id}, '${type}', ${workId}, ${returnId})"
+                    >Edit</button>
+                    <button
+                      class="btn small danger"
+                      onclick="removeWorkStep(${step.id}, '${type}', ${workId}, ${returnId})"
+                    >Remove</button>
+                  </span>`
+                : ""
+            }
+          </div>
+        </li>`,
+      )
+      .join("");
+    const ownership = canEditSet
+      ? "You set up these steps, so you can edit them."
+      : "Assigned steps can be checked off, but only their author can edit them.";
+
+    return `<div class="work-steps">
+      <div class="work-step-summary">
+        <strong>${stepCounts(list).label}</strong>
+        <small class="muted">${locked ? "This work item is closed." : ownership}</small>
+      </div>
+      <ol class="work-step-list">
+        ${rows || '<li class="empty">No actionable steps.</li>'}
+      </ol>
+      ${
+        canEditSet
+          ? `<button
+              class="btn small"
+              onclick="addWorkStep('${type}', ${workId}, ${returnId})"
+            >+ Add step</button>`
+          : ""
+      }
+    </div>`;
+  }
+
   function applyDynamicMeasurements() {
     document.querySelectorAll("[data-progress]").forEach((progress) => {
       const percentage = Number(progress.dataset.progress) || 0;
@@ -130,19 +231,16 @@
     $("#kpiReviews").textContent = performanceRows.filter(
       (e) => !reviewComplete(e),
     ).length;
-    const p = data.pdps.length
-      ? data.pdps.reduce((a, b) => a + b.progress, 0) / data.pdps.length
-      : 0;
-    $("#kpiPdp").textContent = Math.round(p) + "%";
+    const pdpSteps = data.pdps.flatMap((action) => action.steps || []);
+    $("#kpiPdp").textContent = stepCounts(pdpSteps).label;
 
     $("#overviewTeam").innerHTML =
       data.employees
         .map((employee) => {
           const rating =
             employee.rating != null ? employee.rating.toFixed(1) : "—";
-          const pdpProgress = employee.pdpActionCount ? employee.pdp : 0;
           const pdpLabel = employee.pdpActionCount
-            ? `PDP ${employee.pdp}%`
+            ? `PDP ${employee.pdpCompletedSteps}/${employee.pdpTotalSteps} steps`
             : "No PDP actions";
 
           return `
@@ -161,8 +259,7 @@
               </div>
               <div><strong>${rating}</strong></div>
               <div>
-                ${progressMarkup(pdpProgress)}
-                <div class="muted activity-time">${pdpLabel}</div>
+                <strong>${pdpLabel}</strong>
               </div>
               <div>
                 <button
@@ -308,8 +405,10 @@
             <td class="score">${rating}</td>
             <td>${employee.goals}</td>
             <td>
-              ${progressMarkup(employee.pdp, "team-progress")}
-              <small class="muted">${employee.pdp}%</small>
+              <strong>
+                ${employee.pdpCompletedSteps}/${employee.pdpTotalSteps}
+              </strong>
+              <small class="muted"> steps complete</small>
             </td>
             <td>
               <div class="action-group">
@@ -476,10 +575,7 @@
               <div class="muted">${esc(goal.target)}</div>
             </td>
             <td>${goal.due}</td>
-            <td>
-              ${progressMarkup(goal.progress, "table-progress")}
-              <small class="muted">${goal.progress}%</small>
-            </td>
+            <td><strong>${stepCounts(goal.steps).label}</strong></td>
             <td>
               <span class="status ${statusClass(goal.status)}">
                 ${esc(goal.status)}
@@ -487,7 +583,7 @@
             </td>
             <td>
               <button class="btn small" onclick="editGoal(${goal.id})">
-                Update
+                Manage steps
               </button>
             </td>
           </tr>`,
@@ -503,10 +599,7 @@
               <div class="muted">${esc(action.description || "")}</div>
             </td>
             <td>${action.due}</td>
-            <td>
-              ${progressMarkup(action.progress, "table-progress")}
-              <small class="muted">${action.progress}%</small>
-            </td>
+            <td><strong>${stepCounts(action.steps).label}</strong></td>
             <td>
               <span class="status ${statusClass(action.status)}">
                 ${esc(action.status)}
@@ -514,7 +607,7 @@
             </td>
             <td>
               <button class="btn small" onclick="editPdp(${action.id})">
-                Update
+                Manage steps
               </button>
             </td>
           </tr>`,
@@ -532,7 +625,11 @@
             <td>${esc(pip.employee)}<div class="muted">Manager: ${esc(data.manager.full_name || "—")}</div></td>
             <td>${esc(pip.reason)}</td>
             <td>${pip.start} → ${pip.end}</td>
-            <td>${pip.objectives.length}</td>
+            <td>
+              <strong>
+                ${stepCounts(pip.objectives.flatMap((objective) => objective.steps || [])).label}
+              </strong>
+            </td>
             <td>
               <span class="status ${statusClass(pip.status)}">
                 ${esc(pip.status)}
@@ -555,11 +652,7 @@
       .map((e) => e.rating)
       .filter((v) => v != null);
     const avg = ratings.reduce((a, b) => a + b, 0) / (ratings.length || 1);
-    const goal = data.goals.length
-      ? Math.round(
-          data.goals.reduce((a, b) => a + b.progress, 0) / data.goals.length,
-        )
-      : 0;
+    const goalSteps = data.goals.flatMap((goal) => goal.steps || []);
     const gaps = performanceRows.flatMap((e) =>
       e.skills
         .filter((s) => s[2] < s[1])
@@ -572,7 +665,7 @@
         })),
     );
     $("#reportAvg").textContent = ratings.length ? avg.toFixed(1) : "—";
-    $("#reportGoal").textContent = goal + "%";
+    $("#reportGoal").textContent = stepCounts(goalSteps).label;
     $("#reportGaps").textContent = gaps.length;
     $("#reportPips").textContent = data.pips.filter((p) =>
       ["active", "extended"].includes(p.status),
@@ -617,12 +710,7 @@
     const activeGoals = goals.filter(
       (g) => !["Completed", "Missed"].includes(g.status),
     );
-    const pdpAverage = pdpActions.length
-      ? Math.round(
-          pdpActions.reduce((sum, a) => sum + Number(a.progress || 0), 0) /
-            pdpActions.length,
-        )
-      : null;
+    const personalPdpSteps = pdpActions.flatMap((action) => action.steps || []);
     $("#personalInitials").textContent = initials(
       data.manager.full_name || "Manager",
     );
@@ -636,8 +724,9 @@
         ? `${Number(p.review.final_rating).toFixed(1)} / 5`
         : "—";
     $("#personalGoalCount").textContent = activeGoals.length;
-    $("#personalPdpProgress").textContent =
-      pdpAverage == null ? "—" : `${pdpAverage}%`;
+    $("#personalPdpProgress").textContent = personalPdpSteps.length
+      ? stepCounts(personalPdpSteps).label
+      : "—";
     $("#personalTasks").innerHTML = p.review
       ? `<label class="check-row">
           <input
@@ -682,16 +771,20 @@
             (goal) => `<div class="personal-goal">
               <div class="personal-goal-head">
                 <strong class="personal-goal-title">${esc(goal.title)}</strong>
-                <span class="status ${statusClass(goal.status)}">
-                  ${esc(goal.status)}
+                <span class="action-group">
+                  <span class="status ${statusClass(goal.status)}">
+                    ${esc(goal.status)}
+                  </span>
+                  <button class="btn small" onclick="editGoal(${goal.id})">
+                    Manage steps
+                  </button>
                 </span>
               </div>
               <div class="muted personal-goal-meta">
                 ${esc(goal.target || "")} · Due ${goal.due}
               </div>
-              ${progressMarkup(goal.progress, "personal-goal-progress")}
               <div class="muted personal-goal-completion">
-                ${goal.progress}% complete
+                ${stepCounts(goal.steps).label}
               </div>
             </div>`,
           )
@@ -707,8 +800,11 @@
               <div>
                 <strong>${esc(action.title)}</strong>
                 <div class="muted">
-                  ${action.progress}% · ${esc(action.status)} · due ${action.due}
+                  ${stepCounts(action.steps).label} · ${esc(action.status)} · due ${action.due}
                 </div>
+                <button class="btn small" onclick="editPdp(${action.id})">
+                  Manage steps
+                </button>
               </div>
             </div>`,
           )
@@ -823,8 +919,10 @@
           <strong>${esc(e.review)}</strong>
         </div>
         <div class="detail-box">
-          <small>PDP progress</small>
-          <strong>${e.pdpActionCount ? `${e.pdp}%` : "No actions"}</strong>
+          <small>PDP steps</small>
+          <strong>
+            ${e.pdpActionCount ? `${e.pdpCompletedSteps}/${e.pdpTotalSteps} complete` : "No actions"}
+          </strong>
         </div>
       </div>
       <div class="section-head">
@@ -1015,10 +1113,17 @@
           >
         </div>
         <div class="field full">
-          <label>Metric / target</label>
+          <label>Expected outcome</label>
           <textarea
             id="goalTarget"
-            placeholder="Define a measurable outcome"
+            placeholder="Describe what done looks like"
+          ></textarea>
+        </div>
+        <div class="field full">
+          <label>Actionable steps (one per line)</label>
+          <textarea
+            id="goalSteps"
+            placeholder="Confirm requirements&#10;Complete the work&#10;Share the evidence"
           ></textarea>
         </div>
       </div>`,
@@ -1037,6 +1142,7 @@
           title: $("#goalTitle").value.trim(),
           target: $("#goalTarget").value.trim(),
           due: $("#goalDue").value,
+          steps: stepsFromInput("#goalSteps"),
         }),
       });
       closeModal();
@@ -1047,44 +1153,39 @@
     }
   }
 
-  // Open the goal-progress form.
+  // Open the goal-step form.
   function editGoal(id) {
-    const g = data.goals.find((x) => x.id === id);
+    const g = [...data.goals, ...(data.personal?.goals || [])].find(
+      (x) => x.id === id,
+    );
     if (!g) return;
-    const statusOptions = ["Not Started", "In Progress", "Completed", "Missed"]
-      .map(
-        (status) => `<option ${g.status === status ? "selected" : ""}>
-          ${status}
-        </option>`,
-      )
-      .join("");
+    const canEdit = (g.steps || []).every((step) => step.canEdit);
 
     openModal(
-      "Update goal",
+      "Manage goal steps",
       `<div class="form-grid">
         <div class="field full">
           <label>Goal</label>
-          <input id="editGoalTitle" value="${esc(g.title)}">
-        </div>
-        <div class="field">
-          <label>Progress (%)</label>
           <input
-            id="editGoalProgress"
-            type="number"
-            min="0"
-            max="100"
-            value="${g.progress}"
+            id="editGoalTitle"
+            value="${esc(g.title)}"
+            ${canEdit ? "" : "readonly"}
           >
         </div>
-        <div class="field">
+        <div class="field full">
           <label>Status</label>
-          <select id="editGoalStatus">${statusOptions}</select>
+          <span class="status ${statusClass(g.status)}">${esc(g.status)}</span>
         </div>
-      </div>`,
+      </div>
+      ${workStepsMarkup(g.steps, "goal", id)}`,
       `<button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn primary" onclick="saveGoalUpdate(${id})">
-        Save changes
-      </button>`,
+      ${
+        canEdit
+          ? `<button class="btn primary" onclick="saveGoalUpdate(${id})">
+              Save goal title
+            </button>`
+          : ""
+      }`,
     );
   }
   // Save changes to an existing goal.
@@ -1095,8 +1196,9 @@
         body: JSON.stringify({
           id,
           title: $("#editGoalTitle").value.trim(),
-          progress: Number($("#editGoalProgress").value),
-          status: $("#editGoalStatus").value,
+          status: [...data.goals, ...(data.personal?.goals || [])].find(
+            (goal) => goal.id === id,
+          )?.status,
         }),
       });
       closeModal();
@@ -1120,10 +1222,17 @@
           >
         </div>
         <div class="field full">
-          <label>Metric / target</label>
+          <label>Expected outcome</label>
           <textarea
             id="personalGoalTarget"
-            placeholder="Define a measurable outcome"
+            placeholder="Describe what done looks like"
+          ></textarea>
+        </div>
+        <div class="field full">
+          <label>Actionable steps (one per line)</label>
+          <textarea
+            id="personalGoalSteps"
+            placeholder="Plan the work&#10;Complete the work&#10;Share the evidence"
           ></textarea>
         </div>
         <div class="field">
@@ -1147,6 +1256,7 @@
           title: $("#personalGoalTitle").value.trim(),
           target: $("#personalGoalTarget").value.trim(),
           due: $("#personalGoalDue").value,
+          steps: stepsFromInput("#personalGoalSteps"),
         }),
       });
       closeModal();
@@ -1159,15 +1269,23 @@
 
   // Open the personal-development action form.
   function newPdp(employeeId) {
-    const directReports = data.employees.filter((employee) => employee.canCreateRecords);
-    if (!directReports.length)
+    const personal = Number(employeeId) === Number(data.manager.id);
+    const eligibleEmployees = personal
+      ? [
+          {
+            id: Number(data.manager.id),
+            name: data.manager.full_name,
+          },
+        ]
+      : data.employees.filter((employee) => employee.canCreateRecords);
+    if (!eligibleEmployees.length)
       return toast("No direct reports are available for a PDP.");
     const selectedEmployee = employeeById(employeeId);
-    const employeeOptions = directReports
+    const employeeOptions = eligibleEmployees
       .map(
         (employee) => `<option
           value="${employee.id}"
-          ${selectedEmployee?.id === employee.id ? "selected" : ""}
+          ${personal || selectedEmployee?.id === employee.id ? "selected" : ""}
         >
           ${esc(employee.name)}
         </option>`,
@@ -1175,7 +1293,7 @@
       .join("");
 
     openModal(
-      "Create PDP action",
+      personal ? "Create personal PDP action" : "Create PDP action",
       `<div class="form-grid">
         <div class="field">
           <label>Employee</label>
@@ -1196,12 +1314,22 @@
             placeholder="Steps, evidence and expected outcome"
           ></textarea>
         </div>
+        <div class="field full">
+          <label>Actionable steps (one per line)</label>
+          <textarea
+            id="pdpSteps"
+            placeholder="Choose the learning resource&#10;Complete the activity&#10;Record and share the outcome"
+          ></textarea>
+        </div>
       </div>`,
       `<button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn primary" onclick="savePdp()">
         Create PDP action
       </button>`,
     );
+  }
+  function newPersonalPdp() {
+    newPdp(Number(data.manager.id));
   }
   // Save a new personal-development action.
   async function savePdp() {
@@ -1213,6 +1341,7 @@
           title: $("#pdpTitle").value.trim(),
           description: $("#pdpDescription").value.trim(),
           due: $("#pdpDue").value,
+          steps: stepsFromInput("#pdpSteps"),
         }),
       });
       closeModal();
@@ -1223,10 +1352,13 @@
     }
   }
 
-  // Open the development-progress form.
+  // Open the development-step form.
   function editPdp(id) {
-    const p = data.pdps.find((x) => x.id === id);
+    const p = [...data.pdps, ...(data.personal?.pdp || [])].find(
+      (x) => x.id === id,
+    );
     if (!p) return;
+    const canEdit = (p.steps || []).every((step) => step.canEdit);
     const statusOptions = [
       "Not Started",
       "In Progress",
@@ -1242,20 +1374,14 @@
       .join("");
 
     openModal(
-      "Update PDP action",
+      "Manage PDP steps",
       `<div class="form-grid">
         <div class="field full">
           <label>Action</label>
-          <input id="editPdpTitle" value="${esc(p.title)}">
-        </div>
-        <div class="field">
-          <label>Progress (%)</label>
           <input
-            id="editPdpProgress"
-            type="number"
-            min="0"
-            max="100"
-            value="${p.progress}"
+            id="editPdpTitle"
+            value="${esc(p.title)}"
+            ${canEdit ? "" : "readonly"}
           >
         </div>
         <div class="field">
@@ -1266,17 +1392,18 @@
           <label>Progress note</label>
           <textarea
             id="editPdpNote"
-            placeholder="Add a manager progress note"
+            placeholder="Add a progress note about evidence, blockers or next actions"
           ></textarea>
         </div>
-      </div>`,
+      </div>
+      ${workStepsMarkup(p.steps, "pdp_action", id)}`,
       `<button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn primary" onclick="savePdpUpdate(${id})">
-        Save progress
+        Save details
       </button>`,
     );
   }
-  // Save progress on an existing development action.
+  // Save metadata and a note on an existing development action.
   async function savePdpUpdate(id) {
     try {
       await request("update_pdp", {
@@ -1284,14 +1411,124 @@
         body: JSON.stringify({
           id,
           title: $("#editPdpTitle").value.trim(),
-          progress: Number($("#editPdpProgress").value),
           status: $("#editPdpStatus").value,
           note: $("#editPdpNote").value.trim(),
         }),
       });
       closeModal();
       await refresh();
-      toast("PDP progress saved to the database.");
+      toast("PDP details saved to the database.");
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function reopenWorkItem(type, workId, returnId) {
+    if (type === "goal") return editGoal(workId);
+    if (type === "pdp_action") return editPdp(workId);
+    return openPip(returnId);
+  }
+
+  async function toggleWorkStep(id, completed, type, workId, returnId) {
+    try {
+      await request("toggle_work_step", {
+        method: "POST",
+        body: JSON.stringify({ id, completed }),
+      });
+      closeModal();
+      await refresh();
+      reopenWorkItem(type, workId, returnId);
+    } catch (err) {
+      toast(err.message);
+      await refresh();
+      reopenWorkItem(type, workId, returnId);
+    }
+  }
+
+  function addWorkStep(type, workId, returnId) {
+    openModal(
+      "Add actionable step",
+      `<div class="field">
+        <label>Step</label>
+        <textarea
+          id="newWorkStepTitle"
+          placeholder="Describe one concrete action"
+        ></textarea>
+      </div>`,
+      `<button class="btn" onclick="reopenWorkItem('${type}', ${workId}, ${returnId})">
+        Cancel
+      </button>
+      <button
+        class="btn primary"
+        onclick="saveWorkStep('${type}', ${workId}, ${returnId})"
+      >Add step</button>`,
+    );
+  }
+
+  async function saveWorkStep(type, workId, returnId) {
+    try {
+      await request("add_work_step", {
+        method: "POST",
+        body: JSON.stringify({
+          type,
+          workId,
+          title: $("#newWorkStepTitle").value.trim(),
+        }),
+      });
+      closeModal();
+      await refresh();
+      reopenWorkItem(type, workId, returnId);
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function editWorkStep(id, type, workId, returnId) {
+    const step = findWorkStep(id);
+    if (!step || !step.canEdit) return;
+    openModal(
+      "Edit actionable step",
+      `<div class="field">
+        <label>Step</label>
+        <textarea id="editWorkStepTitle">${esc(step.title)}</textarea>
+      </div>`,
+      `<button class="btn" onclick="reopenWorkItem('${type}', ${workId}, ${returnId})">
+        Cancel
+      </button>
+      <button
+        class="btn primary"
+        onclick="saveWorkStepEdit(${id}, '${type}', ${workId}, ${returnId})"
+      >Save step</button>`,
+    );
+  }
+
+  async function saveWorkStepEdit(id, type, workId, returnId) {
+    try {
+      await request("update_work_step", {
+        method: "POST",
+        body: JSON.stringify({
+          id,
+          title: $("#editWorkStepTitle").value.trim(),
+        }),
+      });
+      closeModal();
+      await refresh();
+      reopenWorkItem(type, workId, returnId);
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  async function removeWorkStep(id, type, workId, returnId) {
+    if (!confirm("Remove this actionable step?")) return;
+    try {
+      await request("delete_work_step", {
+        method: "POST",
+        body: JSON.stringify({ id }),
+      });
+      closeModal();
+      await refresh();
+      reopenWorkItem(type, workId, returnId);
     } catch (err) {
       toast(err.message);
     }
@@ -1324,7 +1561,7 @@
     openModal(
       "Start Performance Improvement Plan",
       `<div class="notice warn modal-notice compact">
-        Every PIP must have an HR owner and measurable success criteria.
+        Every PIP must have an HR owner, expected evidence and actionable steps.
       </div>
       <div class="form-grid">
         <div class="field">
@@ -1351,22 +1588,29 @@
           ></textarea>
         </div>
         <div class="field full">
-          <label>First measurable objective</label>
+          <label>First objective</label>
           <input
             id="pipObjective"
-            placeholder="e.g. Meet 90% of sprint commitments"
+            placeholder="e.g. Complete agreed sprint commitments"
           >
         </div>
         <div class="field full">
-          <label>Measurable success criteria</label>
+          <label>Expected evidence</label>
           <textarea
             id="pipCriteria"
-            placeholder="How will achievement be objectively measured?"
+            placeholder="What evidence will show the objective is complete?"
           ></textarea>
         </div>
         <div class="field">
           <label>Objective due date</label>
           <input id="pipObjectiveDue" type="date">
+        </div>
+        <div class="field full">
+          <label>Actionable steps (one per line)</label>
+          <textarea
+            id="pipSteps"
+            placeholder="Confirm the commitment&#10;Complete each agreed item&#10;Review the evidence"
+          ></textarea>
         </div>
       </div>`,
       `<button class="btn" onclick="closeModal()">Cancel</button>
@@ -1387,6 +1631,7 @@
           objective: $("#pipObjective").value.trim(),
           criteria: $("#pipCriteria").value.trim(),
           objectiveDue: $("#pipObjectiveDue").value,
+          steps: stepsFromInput("#pipSteps"),
         }),
       });
       closeModal();
@@ -1410,33 +1655,6 @@
             : objective.status === "partially_met"
               ? "amber"
               : "red";
-        const actionButtons = locked
-          ? ""
-          : `<div class="toolbar objective-actions">
-              <button
-                class="btn small"
-                onclick="setObjective(${objective.id}, 'not_met', ${id})"
-              >
-                Not met
-              </button>
-              <button
-                class="btn small"
-                onclick="setObjective(
-                  ${objective.id},
-                  'partially_met',
-                  ${id}
-                )"
-              >
-                Partially met
-              </button>
-              <button
-                class="btn small"
-                onclick="setObjective(${objective.id}, 'met', ${id})"
-              >
-                Met
-              </button>
-            </div>`;
-
         return `<div class="notice">
           <div class="objective-head">
             <strong>${esc(objective.text)}</strong>
@@ -1448,7 +1666,13 @@
             ${esc(objective.criteria || "")}
           </div>
           <div class="muted objective-meta">Due ${objective.due || "—"}</div>
-          ${actionButtons}
+          ${workStepsMarkup(
+            objective.steps,
+            "pip_objective",
+            objective.id,
+            id,
+            locked,
+          )}
         </div>`;
       })
       .join("");
@@ -1490,14 +1714,16 @@
           <strong>${esc(p.hrOwner)}</strong>
         </div>
         <div class="detail-box">
-          <small>Objectives</small>
-          <strong>${p.objectives.length}</strong>
+          <small>Steps completed</small>
+          <strong>
+            ${stepCounts(p.objectives.flatMap((objective) => objective.steps || [])).label}
+          </strong>
         </div>
       </div>
       <div class="section-head">
         <div>
           <h2>Objectives</h2>
-          <p>Success criteria must be measurable.</p>
+          <p>Each objective is completed through concrete, checkable steps.</p>
         </div>
         ${addObjectiveButton}
       </div>
@@ -1528,7 +1754,7 @@
     );
   }
 
-  // Add a measurable objective to an existing PIP.
+  // Add an objective with actionable steps to an existing PIP.
   function addPipObjective(id) {
     openModal(
       "Add PIP objective",
@@ -1538,12 +1764,16 @@
           <input id="newPipObjective">
         </div>
         <div class="field full">
-          <label>Measurable success criteria</label>
+          <label>Expected evidence</label>
           <textarea id="newPipCriteria"></textarea>
         </div>
         <div class="field">
           <label>Due date</label>
           <input id="newPipDue" type="date">
+        </div>
+        <div class="field full">
+          <label>Actionable steps (one per line)</label>
+          <textarea id="newPipSteps"></textarea>
         </div>
       </div>`,
       `<button class="btn" onclick="closeModal()">Cancel</button>
@@ -1562,25 +1792,12 @@
           objective: $("#newPipObjective").value.trim(),
           criteria: $("#newPipCriteria").value.trim(),
           due: $("#newPipDue").value,
+          steps: stepsFromInput("#newPipSteps"),
         }),
       });
       closeModal();
       await refresh();
       openPip(id);
-    } catch (err) {
-      toast(err.message);
-    }
-  }
-  // Update whether a PIP objective has been met.
-  async function setObjective(id, status, pipId) {
-    try {
-      await request("update_pip_objective", {
-        method: "POST",
-        body: JSON.stringify({ id, status }),
-      });
-      await refresh();
-      openPip(pipId);
-      toast("PIP objective updated.");
     } catch (err) {
       toast(err.message);
     }
@@ -1698,11 +1915,7 @@
       .map((e) => e.rating)
       .filter((v) => v != null);
     const avg = ratings.reduce((a, b) => a + b, 0) / (ratings.length || 1);
-    const goal = data.goals.length
-      ? Math.round(
-          data.goals.reduce((a, b) => a + b.progress, 0) / data.goals.length,
-        )
-      : 0;
+    const goalSteps = data.goals.flatMap((goal) => goal.steps || []);
     const active = data.pips.filter((p) =>
       ["active", "extended"].includes(p.status),
     ).length;
@@ -1719,7 +1932,7 @@
       </strong>
       <br><br>
       Average available rating: <strong>${ratingLabel}</strong><br>
-      Average goal progress: <strong>${goal}%</strong><br>
+      Goal steps completed: <strong>${stepCounts(goalSteps).label}</strong><br>
       Direct reports: <strong>${directReports.length}</strong><br>
       Active/extended PIPs: <strong>${active}</strong><br>
       Pending manager reviews: <strong>${pendingReviews}</strong>`;
@@ -1727,10 +1940,17 @@
   }
   // Export the current team snapshot as a safe CSV file.
   function exportCSV() {
-    const header = "Employee,Role,Rating,Review Status,Goals,PDP Progress\n";
+    const header = "Employee,Role,Rating,Review Status,Goals,PDP Steps\n";
     const body = data.employees.filter((employee) => employee.scope !== "Descendant")
       .map((e) =>
-        [e.name, e.role, e.rating ?? "", e.review, e.goals, e.pdp]
+        [
+          e.name,
+          e.role,
+          e.rating ?? "",
+          e.review,
+          e.goals,
+          `${e.pdpCompletedSteps}/${e.pdpTotalSteps}`,
+        ]
           .map(csvCell)
           .join(","),
       )
@@ -1775,6 +1995,7 @@
       }
     };
     $("#personalGoalBtn").onclick = newPersonalGoal;
+    $("#personalPdpBtn").onclick = newPersonalPdp;
     $("#newGoalBtn").onclick = () => newGoal();
     $("#newPdpBtn").onclick = () => newPdp();
     $("#newPipBtn").onclick = newPip;
@@ -1834,15 +2055,22 @@
     editGoal,
     saveGoalUpdate,
     newPdp,
+    newPersonalPdp,
     savePdp,
     editPdp,
     savePdpUpdate,
+    reopenWorkItem,
+    toggleWorkStep,
+    addWorkStep,
+    saveWorkStep,
+    editWorkStep,
+    saveWorkStepEdit,
+    removeWorkStep,
     newPip,
     savePip,
     openPip,
     addPipObjective,
     savePipObjective,
-    setObjective,
     addPipCheckin,
     savePipCheckin,
     changePipStatus,
@@ -1866,17 +2094,24 @@
   globalThis.editGoal = editGoal;
   globalThis.saveGoalUpdate = saveGoalUpdate;
   globalThis.newPdp = newPdp;
+  globalThis.newPersonalPdp = newPersonalPdp;
   globalThis.newPersonalGoal = newPersonalGoal;
   globalThis.savePersonalGoal = savePersonalGoal;
   globalThis.savePdp = savePdp;
   globalThis.editPdp = editPdp;
   globalThis.savePdpUpdate = savePdpUpdate;
+  globalThis.reopenWorkItem = reopenWorkItem;
+  globalThis.toggleWorkStep = toggleWorkStep;
+  globalThis.addWorkStep = addWorkStep;
+  globalThis.saveWorkStep = saveWorkStep;
+  globalThis.editWorkStep = editWorkStep;
+  globalThis.saveWorkStepEdit = saveWorkStepEdit;
+  globalThis.removeWorkStep = removeWorkStep;
   globalThis.newPip = newPip;
   globalThis.savePip = savePip;
   globalThis.openPip = openPip;
   globalThis.addPipObjective = addPipObjective;
   globalThis.savePipObjective = savePipObjective;
-  globalThis.setObjective = setObjective;
   globalThis.addPipCheckin = addPipCheckin;
   globalThis.savePipCheckin = savePipCheckin;
   globalThis.changePipStatus = changePipStatus;

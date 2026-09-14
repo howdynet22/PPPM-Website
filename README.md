@@ -15,6 +15,19 @@ Performance records remain protected by their own `manager_id` owner, so an
 ancestor does not automatically gain review, peer-feedback, goal, PDP or PIP
 ownership.
 
+## Actionable work steps
+
+Goals, PDP actions and PIP objectives are measured with ordered, checkable
+steps rather than percentages. Creation forms require at least one concrete
+step, dashboards show completed steps out of total steps, and parent statuses
+are recalculated when steps are checked or reopened.
+
+The person who creates a task owns its step definitions. A self-created task
+can therefore be edited by its assignee. When another person assigns the task,
+the assignee can check steps off but cannot add, rename or remove them; those
+changes remain with the person who set the steps. The API enforces this rule in
+addition to hiding edit controls in the dashboard.
+
 ## Code cleanup update
 
 - Moved all the page styling into one `css/styles.css` file.
@@ -60,16 +73,21 @@ Re-importing `schema.sql` will reset the demo database and remove existing test 
 After importing, `tests/organization_checks.sql` provides read-only checks for
 active-manager uniqueness, foreign-key integrity, the seeded reporting path,
 historical ownership and job-title/permission separation.
+`tests/actionable_steps_checks.sql` checks step ownership, parent links and
+completed-status consistency.
 
 ### Upgrading an existing database
 
-Back up the database, then import `migrations/001_organization.sql` once. The
-migration converts text departments and current `users.manager_id` values into
-normalized records, updates the skill-gap view and then removes the deprecated
-columns. Existing review, goal, PDP and PIP manager IDs are retained as record
-ownership/history. Because the legacy schema stored no relationship dates, the
-employee's join date is used as the earliest available effective date and that
-inference is recorded in the relationship change note.
+Back up the database, then import `migrations/001_organization.sql` once,
+followed by `migrations/002_actionable_work_steps.sql`. The first migration
+normalizes the organization structure. The second converts existing goal and
+PDP percentages, plus PIP objective statuses, into seeded actionable steps and
+then removes the obsolete percentage columns. Existing manager IDs are retained
+as record ownership/history and as the authors of migrated step definitions.
+
+Because the legacy schema stored no relationship dates, the employee's join
+date is used as the earliest available effective date and that inference is
+recorded in the relationship change note.
 
 Unused departments and teams can be deleted from the organization page. The API
 rejects deletion while employees or teams still reference the record. Active
@@ -86,6 +104,6 @@ recursive CTE support.
 - Added mixed review stages, ratings and manager summaries.
 - Added more peer nominations and anonymous 360 feedback.
 - Added completed, active, missed and not-started goals.
-- Added PDP actions with different progress levels and update notes.
+- Added PDP actions with ordered, checkable steps and update notes.
 - Added active, extended and successful PIP examples.
 - Added sample notifications, login activity and audit records.

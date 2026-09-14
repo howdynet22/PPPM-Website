@@ -432,7 +432,6 @@ CREATE TABLE goals (
     'completed',
     'missed'
   ) DEFAULT 'not_started',
-  progress_pct TINYINT NOT NULL DEFAULT 0 CHECK (progress_pct BETWEEN 0 AND 100),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_goal_emp FOREIGN KEY (employee_id) REFERENCES users (id),
   CONSTRAINT fk_goal_mgr FOREIGN KEY (manager_id) REFERENCES users (id)
@@ -470,7 +469,6 @@ CREATE TABLE pdp_actions (
     'overdue',
     'cancelled'
   ) DEFAULT 'not_started',
-  progress_pct TINYINT DEFAULT 0 CHECK (progress_pct BETWEEN 0 AND 100),
   completed_at DATETIME NULL,
   CONSTRAINT fk_pa_pdp FOREIGN KEY (pdp_id) REFERENCES pdps (id),
   CONSTRAINT fk_pa_skill FOREIGN KEY (skill_id) REFERENCES skills (id)
@@ -521,7 +519,7 @@ CREATE TABLE pip_objectives (
   id INT AUTO_INCREMENT PRIMARY KEY,
   pip_id INT NOT NULL,
   objective VARCHAR(255) NOT NULL,
-  success_criteria TEXT NOT NULL, -- must be measurable
+  success_criteria TEXT NOT NULL, -- expected evidence for the objective
   due_date DATE,
   status ENUM('not_met', 'partially_met', 'met') DEFAULT 'not_met',
   CONSTRAINT fk_po_pip FOREIGN KEY (pip_id) REFERENCES pips (id)
@@ -536,6 +534,38 @@ CREATE TABLE pip_checkins (
   notes TEXT NOT NULL,
   CONSTRAINT fk_pc_pip FOREIGN KEY (pip_id) REFERENCES pips (id),
   CONSTRAINT fk_pc_author FOREIGN KEY (author_id) REFERENCES users (id)
+);
+
+
+-- Ordered, actionable steps are the shared unit of progress for goals, PDP
+-- actions and PIP objectives. The step author is the only person who may
+-- rewrite or remove the step; an assignee may still mark it complete.
+CREATE TABLE work_steps (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  goal_id INT NULL,
+  pdp_action_id INT NULL,
+  pip_objective_id INT NULL,
+  title VARCHAR(500) NOT NULL,
+  step_order SMALLINT UNSIGNED NOT NULL,
+  created_by INT NOT NULL,
+  is_completed TINYINT(1) NOT NULL DEFAULT 0,
+  completed_by INT NULL,
+  completed_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT chk_work_step_parent CHECK (
+    (goal_id IS NOT NULL) +
+    (pdp_action_id IS NOT NULL) +
+    (pip_objective_id IS NOT NULL) = 1
+  ),
+  CONSTRAINT fk_ws_goal FOREIGN KEY (goal_id) REFERENCES goals (id) ON DELETE CASCADE,
+  CONSTRAINT fk_ws_pdp_action FOREIGN KEY (pdp_action_id) REFERENCES pdp_actions (id) ON DELETE CASCADE,
+  CONSTRAINT fk_ws_pip_objective FOREIGN KEY (pip_objective_id) REFERENCES pip_objectives (id) ON DELETE CASCADE,
+  CONSTRAINT fk_ws_creator FOREIGN KEY (created_by) REFERENCES users (id),
+  CONSTRAINT fk_ws_completer FOREIGN KEY (completed_by) REFERENCES users (id),
+  INDEX idx_ws_goal (goal_id, step_order),
+  INDEX idx_ws_pdp (pdp_action_id, step_order),
+  INDEX idx_ws_pip (pip_objective_id, step_order)
 );
 
 
@@ -1337,8 +1367,7 @@ INSERT INTO
     title,
     description,
     due_date,
-    status,
-    progress_pct
+    status
   )
 VALUES
   (
@@ -1347,8 +1376,7 @@ VALUES
     'Improve delivery reliability',
     'Meet sprint commitments consistently',
     '2026-09-30',
-    'in_progress',
-    55
+    'in_progress'
   ),
   (
     4,
@@ -1356,8 +1384,7 @@ VALUES
     'Build reusable PHP module',
     'Create and document one reusable validation module',
     '2026-10-20',
-    'not_started',
-    10
+    'not_started'
   ),
   (
     4,
@@ -1365,8 +1392,7 @@ VALUES
     'Close inherited defect backlog',
     'Resolve the ten oldest assigned defects',
     '2026-06-30',
-    'completed',
-    100
+    'completed'
   ),
   (
     5,
@@ -1374,8 +1400,7 @@ VALUES
     'Lead API refactor',
     'Complete v2 endpoints and document the changes',
     '2026-09-20',
-    'in_progress',
-    85
+    'in_progress'
   ),
   (
     5,
@@ -1383,17 +1408,15 @@ VALUES
     'Mentor a junior developer',
     'Hold six pairing sessions and document learning outcomes',
     '2026-08-15',
-    'completed',
-    100
+    'completed'
   ),
   (
     6,
     3,
     'Automate regression suite',
-    'Reach 80% critical-path test coverage',
+    'Automate every critical-path scenario in the approved regression plan',
     '2026-10-15',
-    'in_progress',
-    45
+    'in_progress'
   ),
   (
     6,
@@ -1401,8 +1424,7 @@ VALUES
     'Publish mobile test plan',
     'Complete coverage for the July mobile release',
     '2026-07-20',
-    'missed',
-    70
+    'missed'
   ),
   (
     7,
@@ -1410,8 +1432,7 @@ VALUES
     'Improve code review turnaround',
     'Complete reviews within 24 hours',
     '2026-09-15',
-    'in_progress',
-    60
+    'in_progress'
   ),
   (
     7,
@@ -1419,8 +1440,7 @@ VALUES
     'Improve JavaScript performance',
     'Reduce dashboard load time below two seconds',
     '2026-11-15',
-    'not_started',
-    0
+    'not_started'
   ),
   (
     8,
@@ -1428,17 +1448,15 @@ VALUES
     'Document architecture decisions',
     'Publish ADRs for all major H1 technical decisions',
     '2026-07-31',
-    'completed',
-    100
+    'completed'
   ),
   (
     8,
     3,
     'Reduce API response time',
-    'Reduce the median response time of core endpoints by 25%',
+    'Profile core endpoints and bring their median response time below the agreed two-second threshold',
     '2026-10-31',
-    'in_progress',
-    75
+    'in_progress'
   ),
   (
     9,
@@ -1446,8 +1464,7 @@ VALUES
     'Complete usability study',
     'Run five moderated sessions and present findings',
     '2026-07-25',
-    'completed',
-    100
+    'completed'
   ),
   (
     9,
@@ -1455,8 +1472,7 @@ VALUES
     'Expand the design system',
     'Add accessible patterns for forms, tables and empty states',
     '2026-10-10',
-    'in_progress',
-    65
+    'in_progress'
   ),
   (
     10,
@@ -1464,8 +1480,7 @@ VALUES
     'Improve deployment rollback time',
     'Reduce average rollback time to under ten minutes',
     '2026-10-30',
-    'in_progress',
-    50
+    'in_progress'
   ),
   (
     10,
@@ -1473,8 +1488,7 @@ VALUES
     'Complete monitoring ownership map',
     'Assign an owner and runbook to all production alerts',
     '2026-07-31',
-    'missed',
-    40
+    'missed'
   ),
   (
     11,
@@ -1482,8 +1496,7 @@ VALUES
     'Automate monthly reporting',
     'Generate the monthly team metrics without manual spreadsheet work',
     '2026-09-05',
-    'in_progress',
-    90
+    'in_progress'
   ),
   (
     11,
@@ -1491,8 +1504,7 @@ VALUES
     'Improve data-quality checks',
     'Add validation rules to all quarterly datasets',
     '2026-11-30',
-    'not_started',
-    15
+    'not_started'
   ),
   (
     3,
@@ -1500,8 +1512,7 @@ VALUES
     'Improve manager coaching cadence',
     'Hold structured monthly coaching sessions with direct reports',
     '2026-12-31',
-    'in_progress',
-    70
+    'in_progress'
   ),
   (
     3,
@@ -1509,8 +1520,7 @@ VALUES
     'Complete leadership workshop',
     'Complete the leadership development workshop',
     '2026-11-30',
-    'in_progress',
-    35
+    'in_progress'
   ),
   (
     3,
@@ -1518,8 +1528,7 @@ VALUES
     'Quarterly team development review',
     'Complete the quarterly development review',
     '2026-09-30',
-    'completed',
-    100
+    'completed'
   );
 
 
@@ -1597,8 +1606,7 @@ INSERT INTO
     description,
     skill_id,
     due_date,
-    status,
-    progress_pct
+    status
   )
 VALUES
   (
@@ -1607,8 +1615,7 @@ VALUES
     'Finish an online OOP course and build one sample module',
     1,
     '2026-10-31',
-    'in_progress',
-    40
+    'in_progress'
   ),
   (
     1,
@@ -1616,8 +1623,7 @@ VALUES
     'Deliver one 15-minute session to the team',
     6,
     '2026-09-30',
-    'not_started',
-    0
+    'not_started'
   ),
   (
     2,
@@ -1625,8 +1631,7 @@ VALUES
     'Complete the course and apply two patterns to the v2 API',
     8,
     '2026-09-25',
-    'in_progress',
-    70
+    'in_progress'
   ),
   (
     2,
@@ -1634,8 +1639,7 @@ VALUES
     'Complete six planned mentoring sessions',
     6,
     '2026-08-15',
-    'completed',
-    100
+    'completed'
   ),
   (
     3,
@@ -1643,8 +1647,7 @@ VALUES
     'Automate twenty additional critical-path scenarios',
     9,
     '2026-10-15',
-    'in_progress',
-    55
+    'in_progress'
   ),
   (
     3,
@@ -1652,8 +1655,7 @@ VALUES
     'Pilot the checklist across two releases',
     7,
     '2026-09-20',
-    'in_progress',
-    20
+    'in_progress'
   ),
   (
     4,
@@ -1661,8 +1663,7 @@ VALUES
     'Deliver the Q4 architecture roadmap to engineering leadership',
     6,
     '2026-09-10',
-    'in_progress',
-    90
+    'in_progress'
   ),
   (
     5,
@@ -1670,8 +1671,7 @@ VALUES
     'Create a reusable research report template',
     12,
     '2026-09-30',
-    'in_progress',
-    65
+    'in_progress'
   ),
   (
     5,
@@ -1679,8 +1679,7 @@ VALUES
     'Run one practical accessibility workshop for the product team',
     6,
     '2026-08-12',
-    'completed',
-    100
+    'completed'
   ),
   (
     6,
@@ -1688,8 +1687,7 @@ VALUES
     'Create runbooks for the ten highest-priority alerts',
     16,
     '2026-08-28',
-    'in_progress',
-    30
+    'in_progress'
   ),
   (
     6,
@@ -1697,8 +1695,7 @@ VALUES
     'Lead one tabletop production-incident exercise',
     7,
     '2026-09-18',
-    'not_started',
-    0
+    'not_started'
   ),
   (
     7,
@@ -1706,8 +1703,7 @@ VALUES
     'Deliver two monthly data presentations to non-technical stakeholders',
     6,
     '2026-09-05',
-    'in_progress',
-    80
+    'in_progress'
   ),
   (
     8,
@@ -1715,8 +1711,7 @@ VALUES
     'Complete the leadership development workshop and document three applied coaching practices',
     NULL,
     '2026-11-30',
-    'in_progress',
-    35
+    'in_progress'
   ),
   (
     8,
@@ -1724,8 +1719,7 @@ VALUES
     'Use the GROW framework in four documented one-to-one sessions',
     NULL,
     '2026-07-31',
-    'completed',
-    100
+    'completed'
   );
 
 
@@ -1867,8 +1861,8 @@ INSERT INTO
 VALUES
   (
     1,
-    'Meet 90% of sprint commitments',
-    'Complete at least 90% of committed sprint work for two consecutive sprints',
+    'Complete agreed sprint commitments',
+    'Confirm the sprint commitment before work starts and finish every committed item, or document and escalate the blocker within one working day',
     '2026-09-15',
     'partially_met'
   ),
@@ -1914,6 +1908,131 @@ VALUES
     '2025-11-30',
     'met'
   );
+
+
+-- Seed three checkable steps for every work item. Completed-step counts replace
+-- the former percentage values throughout the application.
+INSERT INTO work_steps
+  (goal_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  id,
+  'Confirm the expected outcome and evidence with the task owner',
+  1,
+  manager_id,
+  status IN ('in_progress', 'completed', 'missed'),
+  IF(status IN ('in_progress', 'completed', 'missed'), manager_id, NULL),
+  IF(status IN ('in_progress', 'completed', 'missed'), NOW(), NULL)
+FROM goals;
+
+
+INSERT INTO work_steps
+  (goal_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  id,
+  description,
+  2,
+  manager_id,
+  status = 'completed',
+  IF(status = 'completed', manager_id, NULL),
+  IF(status = 'completed', NOW(), NULL)
+FROM goals;
+
+
+INSERT INTO work_steps
+  (goal_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  id,
+  'Share the completed evidence with the task owner',
+  3,
+  manager_id,
+  status = 'completed',
+  IF(status = 'completed', manager_id, NULL),
+  IF(status = 'completed', NOW(), NULL)
+FROM goals;
+
+
+INSERT INTO work_steps
+  (pdp_action_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  pa.id,
+  'Confirm the learning activity and evidence to provide',
+  1,
+  p.manager_id,
+  pa.status IN ('in_progress', 'completed', 'overdue'),
+  IF(pa.status IN ('in_progress', 'completed', 'overdue'), p.manager_id, NULL),
+  IF(pa.status IN ('in_progress', 'completed', 'overdue'), NOW(), NULL)
+FROM pdp_actions pa
+JOIN pdps p ON p.id = pa.pdp_id;
+
+
+INSERT INTO work_steps
+  (pdp_action_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  pa.id,
+  pa.description,
+  2,
+  p.manager_id,
+  pa.status = 'completed',
+  IF(pa.status = 'completed', p.manager_id, NULL),
+  IF(pa.status = 'completed', NOW(), NULL)
+FROM pdp_actions pa
+JOIN pdps p ON p.id = pa.pdp_id;
+
+
+INSERT INTO work_steps
+  (pdp_action_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  pa.id,
+  'Record the learning outcome and how it will be applied',
+  3,
+  p.manager_id,
+  pa.status = 'completed',
+  IF(pa.status = 'completed', p.manager_id, NULL),
+  IF(pa.status = 'completed', NOW(), NULL)
+FROM pdp_actions pa
+JOIN pdps p ON p.id = pa.pdp_id;
+
+
+INSERT INTO work_steps
+  (pip_objective_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  po.id,
+  'Confirm the required evidence and due date',
+  1,
+  p.manager_id,
+  po.status IN ('partially_met', 'met'),
+  IF(po.status IN ('partially_met', 'met'), p.manager_id, NULL),
+  IF(po.status IN ('partially_met', 'met'), NOW(), NULL)
+FROM pip_objectives po
+JOIN pips p ON p.id = po.pip_id;
+
+
+INSERT INTO work_steps
+  (pip_objective_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  po.id,
+  po.success_criteria,
+  2,
+  p.manager_id,
+  po.status = 'met',
+  IF(po.status = 'met', p.manager_id, NULL),
+  IF(po.status = 'met', NOW(), NULL)
+FROM pip_objectives po
+JOIN pips p ON p.id = po.pip_id;
+
+
+INSERT INTO work_steps
+  (pip_objective_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  po.id,
+  'Review the evidence with the manager and HR owner',
+  3,
+  p.manager_id,
+  po.status = 'met',
+  IF(po.status = 'met', p.manager_id, NULL),
+  IF(po.status = 'met', NOW(), NULL)
+FROM pip_objectives po
+JOIN pips p ON p.id = po.pip_id;
 
 
 INSERT INTO
@@ -2063,7 +2182,7 @@ VALUES
     'UPDATE_GOAL',
     'goal',
     4,
-    'Updated goal progress to 85%',
+    'Completed the API documentation step',
     '127.0.0.1',
     '2026-08-07 16:00:00'
   ),
