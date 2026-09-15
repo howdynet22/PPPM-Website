@@ -80,6 +80,10 @@
       label: `${completed}/${steps.length} steps`,
     };
   }
+  function healthMarkup(item) {
+    return (item.progress?.blocked ? '<span class="status red">Blocked</span> ' : '') +
+      (item.progress?.overdue ? '<span class="status amber">Overdue</span>' : '');
+  }
 
   function stepsFromInput(selector) {
     return ($(selector)?.value || "")
@@ -102,75 +106,8 @@
     return groups.flat().find((step) => Number(step.id) === Number(id));
   }
 
-  function workStepsMarkup(
-    steps,
-    type,
-    workId,
-    returnId = workId,
-    locked = false,
-  ) {
-    const list = steps || [];
-    const canEditSet =
-      !locked && list.length > 0 && list.every((step) => step.canEdit);
-    const rows = list
-      .map(
-        (step) => `<li class="work-step ${step.completed ? "is-complete" : ""}">
-          <label class="check-row work-step-check">
-            <input
-              type="checkbox"
-              ${step.completed ? "checked" : ""}
-              ${locked ? "disabled" : ""}
-              onchange="toggleWorkStep(
-                ${step.id},
-                this.checked,
-                '${type}',
-                ${workId},
-                ${returnId}
-              )"
-            >
-            <span>${esc(step.title)}</span>
-          </label>
-          <div class="work-step-meta">
-            <small class="muted">Set by ${esc(step.creator)}</small>
-            ${
-              !locked && step.canEdit
-                ? `<span class="action-group">
-                    <button
-                      class="btn small"
-                      onclick="editWorkStep(${step.id}, '${type}', ${workId}, ${returnId})"
-                    >Edit</button>
-                    <button
-                      class="btn small danger"
-                      onclick="removeWorkStep(${step.id}, '${type}', ${workId}, ${returnId})"
-                    >Remove</button>
-                  </span>`
-                : ""
-            }
-          </div>
-        </li>`,
-      )
-      .join("");
-    const ownership = canEditSet
-      ? "You set up these steps, so you can edit them."
-      : "Assigned steps can be checked off, but only their author can edit them.";
-
-    return `<div class="work-steps">
-      <div class="work-step-summary">
-        <strong>${stepCounts(list).label}</strong>
-        <small class="muted">${locked ? "This work item is closed." : ownership}</small>
-      </div>
-      <ol class="work-step-list">
-        ${rows || '<li class="empty">No actionable steps.</li>'}
-      </ol>
-      ${
-        canEditSet
-          ? `<button
-              class="btn small"
-              onclick="addWorkStep('${type}', ${workId}, ${returnId})"
-            >+ Add step</button>`
-          : ""
-      }
-    </div>`;
+  function workStepsMarkup(steps,type,workId) {
+    return '<p class="muted">'+stepCounts(steps).label+'</p><button class="btn small" onclick="PPPM.openWorkItem(\''+type+'\','+Number(workId)+')">Open steps</button>';
   }
 
   function applyDynamicMeasurements() {
@@ -208,20 +145,31 @@
   }
 
   // Refresh all manager data from the database.
-  async function refresh(showToast = false) {
+  let refreshing=false,lastSnapshot='';
+  async function refresh(showToast=false) {
+    if(refreshing)return;
+    refreshing=true;
     try {
-      const result = await request("dashboard");
-      mapDashboard(result);
-      renderAll();
-      if (showToast) toast("Data refreshed from the database.");
-    } catch (err) {
-      toast(err.message);
-    }
+      const result=await request('dashboard');
+      window.applyAuthUser?.(result.manager);
+      const snapshot=JSON.stringify(result);
+      if(snapshot!==lastSnapshot){mapDashboard(result);renderAll();lastSnapshot=snapshot;}
+      $('#managerSync').textContent='';
+      if(showToast)toast('Data refreshed from the database.');
+    } catch(err) { $('#managerSync').textContent='Unable to refresh team data. '+err.message; }
+    finally {refreshing=false;}
   }
+  function refreshVisible() {
+    if(!document.hidden && !$('#modalBackdrop').classList.contains('open')) refresh();
+  }
+  window.addEventListener('pppm:data-changed',()=>refresh());
+  window.addEventListener('focus',refreshVisible);
+  document.addEventListener('visibilitychange',refreshVisible);
+  setInterval(refreshVisible,15000);
 
   // Render the overview KPIs, team snapshot and activity feed.
   function renderOverview() {
-    const performanceRows = data.employees.filter((e) => e.scope !== "Descendant");
+    const performanceRows = data.employees.filter((e) => e.participantId);
     const ratings = data.employees
       .map((e) => e.rating)
       .filter((v) => v !== null && v !== undefined);
@@ -286,12 +234,12 @@
     );
     const managerCount = performanceRows.filter(reviewComplete).length;
     $("#reviewMetrics").innerHTML = [
-      ["Self reviews", selfCount, Math.max(performanceRows.length, 1)],
-      ["Peer feedback", peerCount, Math.max(peerRequired, 1)],
-      ["Manager reviews", managerCount, Math.max(performanceRows.length, 1)],
+      ["Self reviews", selfCount, performanceRows.length],
+      ["Peer feedback", peerCount, peerRequired],
+      ["Manager reviews", managerCount, performanceRows.length],
     ]
       .map(([label, completed, total]) => {
-        const percentage = Math.min(100, (completed / total) * 100);
+        const percentage = total ? Math.min(100, (completed / total) * 100) : 0;
 
         return `<div class="metric">
           <span>${label}</span>
@@ -580,6 +528,7 @@
               <span class="status ${statusClass(goal.status)}">
                 ${esc(goal.status)}
               </span>
+              ${healthMarkup(goal)}
             </td>
             <td>
               <button class="btn small" onclick="editGoal(${goal.id})">
@@ -604,6 +553,7 @@
               <span class="status ${statusClass(action.status)}">
                 ${esc(action.status)}
               </span>
+              ${healthMarkup(action)}
             </td>
             <td>
               <button class="btn small" onclick="editPdp(${action.id})">
@@ -647,6 +597,7 @@
 
   // Render team performance and skill-gap reports.
   function renderReports() {
+    if (reportGenerated) generateReport(false);
     const performanceRows = data.employees.filter((employee) => employee.scope !== "Descendant");
     const ratings = performanceRows
       .map((e) => e.rating)
@@ -702,140 +653,6 @@
         .join("") || '<div class="empty">No skill gaps found.</div>';
   }
 
-  // Render the manager's personal review, goals and development data.
-  function renderPersonal() {
-    const p = data.personal || {};
-    const goals = p.goals || [];
-    const pdpActions = p.pdp || [];
-    const activeGoals = goals.filter(
-      (g) => !["Completed", "Missed"].includes(g.status),
-    );
-    const personalPdpSteps = pdpActions.flatMap((action) => action.steps || []);
-    $("#personalInitials").textContent = initials(
-      data.manager.full_name || "Manager",
-    );
-    $("#personalName").textContent = data.manager.full_name || "Manager";
-    $("#personalMeta").textContent =
-      [data.manager.job_title, data.manager.department]
-        .filter(Boolean)
-        .join(" · ") || "Manager profile";
-    $("#personalRating").textContent =
-      p.review?.final_rating != null
-        ? `${Number(p.review.final_rating).toFixed(1)} / 5`
-        : "—";
-    $("#personalGoalCount").textContent = activeGoals.length;
-    $("#personalPdpProgress").textContent = personalPdpSteps.length
-      ? stepCounts(personalPdpSteps).label
-      : "—";
-    $("#personalTasks").innerHTML = p.review
-      ? `<label class="check-row">
-          <input
-            type="checkbox"
-            ${
-              [
-                "self_submitted",
-                "peers_complete",
-                "manager_submitted",
-                "released",
-              ].includes(p.review.status)
-                ? "checked"
-                : ""
-            }
-            disabled
-          >
-          ${esc(p.review.cycle || "Current")} review:
-          ${esc(titleStatus(p.review.status))}
-        </label>
-        <label class="check-row">
-          <input
-            type="checkbox"
-            ${activeGoals.length === 0 ? "checked" : ""}
-            disabled
-          >
-          ${activeGoals.length} active personal
-          goal${activeGoals.length === 1 ? "" : "s"}
-        </label>
-        <label class="check-row">
-          <input
-            type="checkbox"
-            ${pdpActions.length === 0 ? "checked" : ""}
-            disabled
-          >
-          ${pdpActions.length} personal PDP
-          action${pdpActions.length === 1 ? "" : "s"}
-        </label>`
-      : '<div class="notice">No personal review cycle is currently assigned to this manager account.</div>';
-    $("#personalGoals").innerHTML = goals.length
-      ? goals
-          .map(
-            (goal) => `<div class="personal-goal">
-              <div class="personal-goal-head">
-                <strong class="personal-goal-title">${esc(goal.title)}</strong>
-                <span class="action-group">
-                  <span class="status ${statusClass(goal.status)}">
-                    ${esc(goal.status)}
-                  </span>
-                  <button class="btn small" onclick="editGoal(${goal.id})">
-                    Manage steps
-                  </button>
-                </span>
-              </div>
-              <div class="muted personal-goal-meta">
-                ${esc(goal.target || "")} · Due ${goal.due}
-              </div>
-              <div class="muted personal-goal-completion">
-                ${stepCounts(goal.steps).label}
-              </div>
-            </div>`,
-          )
-          .join("")
-      : '<div class="empty">No personal goals have been recorded.</div>';
-    const pdpEl = $("#personalPdp");
-    if (pdpEl)
-      pdpEl.innerHTML =
-        pdpActions
-          .map(
-            (action) => `<div class="activity-item">
-              <span class="dot"></span>
-              <div>
-                <strong>${esc(action.title)}</strong>
-                <div class="muted">
-                  ${stepCounts(action.steps).label} · ${esc(action.status)} · due ${action.due}
-                </div>
-                <button class="btn small" onclick="editPdp(${action.id})">
-                  Manage steps
-                </button>
-              </div>
-            </div>`,
-          )
-          .join("") || '<div class="empty">No personal PDP actions.</div>';
-    const fbEl = $("#personalFeedback");
-    const feedbackMeta = p.feedbackMeta || {
-      available: false,
-      released: false,
-      responses: 0,
-      required: 3,
-    };
-    if (fbEl)
-      fbEl.innerHTML = feedbackMeta.available
-        ? (p.feedback || [])
-            .map(
-              (feedback) => `<div class="metric">
-                <span>${esc(feedback.competency)}</span>
-                ${progressMarkup((Number(feedback.avg_score) / 5) * 100)}
-                <strong>${Number(feedback.avg_score).toFixed(1)}</strong>
-              </div>`,
-            )
-            .join("") || '<div class="empty">No feedback available.</div>'
-        : !feedbackMeta.released
-          ? '<div class="notice">Personal feedback will appear after the review is formally released.</div>'
-          : `<div class="notice warn">
-              Anonymous feedback is hidden until ${feedbackMeta.required}
-              peer responses are submitted
-              (${feedbackMeta.responses}/${feedbackMeta.required}).
-            </div>`;
-  }
-
   // Render persisted read and unread notifications.
   function renderNotifications() {
     $("#notificationsList").innerHTML =
@@ -869,7 +686,6 @@
     renderGoals();
     renderPips();
     renderReports();
-    renderPersonal();
     renderNotifications();
     applyDynamicMeasurements();
   }
@@ -1154,41 +970,8 @@
   }
 
   // Open the goal-step form.
-  function editGoal(id) {
-    const g = [...data.goals, ...(data.personal?.goals || [])].find(
-      (x) => x.id === id,
-    );
-    if (!g) return;
-    const canEdit = (g.steps || []).every((step) => step.canEdit);
+  function editGoal(id) { return PPPM.openWorkItem('goal',id); }
 
-    openModal(
-      "Manage goal steps",
-      `<div class="form-grid">
-        <div class="field full">
-          <label>Goal</label>
-          <input
-            id="editGoalTitle"
-            value="${esc(g.title)}"
-            ${canEdit ? "" : "readonly"}
-          >
-        </div>
-        <div class="field full">
-          <label>Status</label>
-          <span class="status ${statusClass(g.status)}">${esc(g.status)}</span>
-        </div>
-      </div>
-      ${workStepsMarkup(g.steps, "goal", id)}`,
-      `<button class="btn" onclick="closeModal()">Cancel</button>
-      ${
-        canEdit
-          ? `<button class="btn primary" onclick="saveGoalUpdate(${id})">
-              Save goal title
-            </button>`
-          : ""
-      }`,
-    );
-  }
-  // Save changes to an existing goal.
   async function saveGoalUpdate(id) {
     try {
       await request("update_goal", {
@@ -1353,57 +1136,8 @@
   }
 
   // Open the development-step form.
-  function editPdp(id) {
-    const p = [...data.pdps, ...(data.personal?.pdp || [])].find(
-      (x) => x.id === id,
-    );
-    if (!p) return;
-    const canEdit = (p.steps || []).every((step) => step.canEdit);
-    const statusOptions = [
-      "Not Started",
-      "In Progress",
-      "Completed",
-      "Overdue",
-      "Cancelled",
-    ]
-      .map(
-        (status) => `<option ${p.status === status ? "selected" : ""}>
-          ${status}
-        </option>`,
-      )
-      .join("");
+  function editPdp(id) { return PPPM.openWorkItem('pdp_action',id); }
 
-    openModal(
-      "Manage PDP steps",
-      `<div class="form-grid">
-        <div class="field full">
-          <label>Action</label>
-          <input
-            id="editPdpTitle"
-            value="${esc(p.title)}"
-            ${canEdit ? "" : "readonly"}
-          >
-        </div>
-        <div class="field">
-          <label>Status</label>
-          <select id="editPdpStatus">${statusOptions}</select>
-        </div>
-        <div class="field full">
-          <label>Progress note</label>
-          <textarea
-            id="editPdpNote"
-            placeholder="Add a progress note about evidence, blockers or next actions"
-          ></textarea>
-        </div>
-      </div>
-      ${workStepsMarkup(p.steps, "pdp_action", id)}`,
-      `<button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn primary" onclick="savePdpUpdate(${id})">
-        Save details
-      </button>`,
-    );
-  }
-  // Save metadata and a note on an existing development action.
   async function savePdpUpdate(id) {
     try {
       await request("update_pdp", {
@@ -1908,7 +1642,9 @@
   }
 
   // Generate a plain-language manager report from the current data.
-  function generateReport() {
+  let reportGenerated=false;
+  function generateReport(notify=true) {
+    reportGenerated=true;
     const performanceRows = data.employees.filter((employee) => employee.scope !== "Descendant");
     const directReports = data.employees.filter((employee) => employee.scope === "Direct report");
     const ratings = performanceRows
@@ -1936,7 +1672,7 @@
       Direct reports: <strong>${directReports.length}</strong><br>
       Active/extended PIPs: <strong>${active}</strong><br>
       Pending manager reviews: <strong>${pendingReviews}</strong>`;
-    toast("Report generated from live database data.");
+    if(notify) toast("Report generated from live database data.");
   }
   // Export the current team snapshot as a safe CSV file.
   function exportCSV() {
@@ -1994,8 +1730,6 @@
         window.location.href = "index.html";
       }
     };
-    $("#personalGoalBtn").onclick = newPersonalGoal;
-    $("#personalPdpBtn").onclick = newPersonalPdp;
     $("#newGoalBtn").onclick = () => newGoal();
     $("#newPdpBtn").onclick = () => newPdp();
     $("#newPipBtn").onclick = newPip;
@@ -2035,9 +1769,7 @@
           ${pipAction}
           ${reviewAction}
           ${reportAction}
-          <button class="btn" onclick="closeModal(); showPage('personal')">
-            My dashboard
-          </button>
+          <a class="btn" href="employee-dashboard.html">Employee workspace</a>
         </div>`,
         '<button class="btn" onclick="closeModal()">Close</button>',
       );

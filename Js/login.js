@@ -40,7 +40,10 @@ loginForm.addEventListener("submit", async function (event) {
 
     // The redirect destination comes from the database roles table, not a JS role map.
     setTimeout(() => {
-      window.location.href = user.dashboard_path || "index.html";
+      let remembered;
+      try { remembered=localStorage.getItem('pppm.workspace.'+user.id); } catch (_) {}
+      const workspace=(user.workspaces || []).find(s=>s.key===remembered);
+      window.location.href = workspace?.path || user.dashboard_path || "index.html";
     }, 500);
   } catch (error) {
     showMessage(error.message || "Unable to sign in.", "error");
