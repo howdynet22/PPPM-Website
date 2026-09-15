@@ -3,112 +3,309 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Organization Hierarchy | Performance & Development Tracker</title>
+    <title>Organization | Performance &amp; Development Tracker</title>
     <link rel="stylesheet" href="css/styles.css" />
   </head>
-  <body class="placeholder-dashboard org-page">
-    <main class="org-shell">
-      <header class="card org-header">
-        <div>
-          <p class="role" data-user-role>Organization</p>
-          <h1>Organization hierarchy</h1>
-          <p class="muted">Reporting lines are separate from job titles and system permissions.</p>
-        </div>
-        <div class="org-header-actions">
-          <a class="btn" id="backToDashboard" href="index.html">Dashboard</a>
-          <button class="btn" id="logoutBtn" type="button">Sign out</button>
-        </div>
-      </header>
+  <body class="manager-dashboard-page org-page">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">P&amp;D TRACKER<small>Organization</small></div>
+        <div id="workspaceControls"></div>
 
-      <div id="orgMessage" class="org-message" role="status" aria-live="polite"></div>
+        <div class="nav-title">Organization</div>
+        <a class="nav-btn" id="backToDashboard" href="index.html">Dashboard</a>
+        <button class="nav-btn active" type="button" data-org-page="directory">
+          Employee directory
+        </button>
+        <button class="nav-btn" type="button" data-org-page="hierarchy">
+          Hierarchy
+        </button>
+        <button class="nav-btn" type="button" data-org-page="reporting">
+          Reporting path
+        </button>
+        <button
+          class="nav-btn"
+          type="button"
+          data-org-page="management"
+          data-permission="org.structure.manage"
+        >
+          Manage organization
+        </button>
 
-      <section class="card">
-        <div class="section-head">
-          <div>
-            <h2>Employee directory</h2>
-            <p>Search the part of the organization you are permitted to view.</p>
+        <div class="sidebar-bottom">
+          <button class="nav-btn" id="logoutBtn" type="button">Sign out</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div id="orgMessage" class="org-message" role="status" aria-live="polite"></div>
+
+        <header class="topbar">
+          <div class="title">
+            <h1 id="orgPageTitle">Employee Directory</h1>
+            <p id="orgPageSubtitle">
+              Find people and view their role, team and direct manager.
+            </p>
           </div>
-        </div>
-        <div class="org-filters">
-          <label>Search
-            <input id="orgSearch" type="search" placeholder="Name, code, title or manager" />
-          </label>
-          <label>Department
-            <select id="orgDepartmentFilter"><option value="">All departments</option></select>
-          </label>
-          <label>Team or unit
-            <select id="orgTeamFilter"><option value="">All teams</option></select>
-          </label>
-        </div>
-        <div class="table-wrap">
-          <table class="table responsive-table">
-            <thead><tr><th>Employee</th><th>Position</th><th>Department / team</th><th>Direct manager</th><th>Action</th></tr></thead>
-            <tbody id="orgEmployeeRows"></tbody>
-          </table>
-        </div>
-      </section>
+          <div class="top-actions">
+            <div class="personal-identity">
+              <strong data-user-name></strong>
+              <span data-user-role></span>
+            </div>
+            <div class="avatar" data-user-initials>U</div>
+          </div>
+        </header>
 
-      <div class="org-columns">
-        <section class="card">
-          <div class="section-head"><div><h2>Hierarchy</h2><p>Select a branch to expand it.</p></div></div>
-          <div id="orgTree" class="org-tree"></div>
+        <section class="page active" id="org-page-directory">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>Employee directory</h2>
+                <p>Search the part of the organization you are permitted to view.</p>
+              </div>
+              <button class="btn small" id="orgClearFilters" type="button">Clear filters</button>
+            </div>
+            <div class="org-filters">
+              <label>
+                Search
+                <input
+                  id="orgSearch"
+                  type="search"
+                  placeholder="Name, employee code, title or manager"
+                />
+              </label>
+              <label>
+                Department
+                <select id="orgDepartmentFilter">
+                  <option value="">All departments</option>
+                </select>
+              </label>
+              <label>
+                Team or unit
+                <select id="orgTeamFilter">
+                  <option value="">All teams</option>
+                </select>
+              </label>
+            </div>
+            <p class="muted org-directory-summary" id="orgDirectorySummary"></p>
+            <div class="table-wrap">
+              <table class="table responsive-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Position</th>
+                    <th>Department / team</th>
+                    <th>Direct manager</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="orgEmployeeRows"></tbody>
+              </table>
+            </div>
+          </div>
         </section>
-        <section class="card">
-          <div class="section-head"><div><h2>Reporting path</h2><p id="orgPathCaption">Select an employee.</p></div></div>
-          <div id="orgPath" class="org-path"></div>
+
+        <section class="page" id="org-page-hierarchy">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>Organization hierarchy</h2>
+                <p>Expand a manager to view their reports. Select any person to open their reporting path.</p>
+              </div>
+            </div>
+            <div class="notice spaced-bottom">
+              Reporting lines show who manages whom. Job titles and system permissions are managed separately.
+            </div>
+            <div id="orgTree" class="org-tree"></div>
+          </div>
         </section>
-      </div>
 
-      <section class="card" id="orgManagePanel" data-permission="org.structure.manage">
-        <div class="section-head">
-          <div><h2>Manage organization</h2><p>Changes use employee accounts and are recorded in the audit log.</p></div>
-        </div>
-        <div class="org-form-grid">
-          <form id="managerForm" class="org-form">
-            <h3>Assign manager</h3>
-            <label>Employee<select name="employeeId" id="managerEmployee" required></select></label>
-            <label>Manager<select name="managerId" id="managerAccount" required></select></label>
-            <label>Relationship
-              <select name="relationshipType"><option value="primary">Primary</option><option value="dotted_line">Dotted line</option></select>
-            </label>
-            <label>Effective from<input name="effectiveFrom" id="managerEffectiveDate" type="date" required /></label>
-            <label>Change reason<textarea name="reason" maxlength="255" placeholder="Optional"></textarea></label>
-            <button class="btn primary" type="submit">Save reporting relationship</button>
-          </form>
+        <section class="page" id="org-page-reporting">
+          <div class="card org-path-card">
+            <div class="section-head">
+              <div>
+                <h2>Reporting path</h2>
+                <p id="orgPathCaption">Select an employee from the directory or hierarchy.</p>
+              </div>
+              <button class="btn small" type="button" data-org-page="directory">
+                Choose employee
+              </button>
+            </div>
+            <div id="orgPath" class="org-path">
+              <div class="empty">No employee selected.</div>
+            </div>
+          </div>
+        </section>
 
-          <form id="membershipForm" class="org-form">
-            <h3>Assign department or team</h3>
-            <label>Employee<select name="employeeId" id="membershipEmployee" required></select></label>
-            <label>Department<select name="departmentId" id="membershipDepartment" required></select></label>
-            <label>Team or unit<select name="teamId" id="membershipTeam"><option value="">No team</option></select></label>
-            <button class="btn primary" type="submit">Save membership</button>
-          </form>
+        <section
+          class="page"
+          id="org-page-management"
+          data-permission="org.structure.manage"
+        >
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>Manage organization</h2>
+                <p>Update reporting lines, memberships, departments and teams.</p>
+              </div>
+            </div>
+            <div class="notice spaced-bottom">
+              These changes update employee records and are recorded in the audit log.
+            </div>
 
-          <form id="departmentForm" class="org-form">
-            <h3>Create or update department</h3>
-            <input name="id" type="hidden" />
-            <label>Code<input name="departmentCode" maxlength="30" pattern="[A-Za-z0-9_-]{2,30}" required /></label>
-            <label>Name<input name="departmentName" maxlength="80" required /></label>
-            <label>Department head<select name="headEmployeeId" id="departmentHead"><option value="">No head assigned</option></select></label>
-            <label class="org-check"><input name="isActive" type="checkbox" checked /> Active</label>
-            <div><button class="btn primary" type="submit">Save department</button> <button class="btn" id="clearDepartment" type="button">Clear</button></div>
-            <div id="departmentList" class="org-admin-list"></div>
-          </form>
+            <div class="tabs org-management-tabs" role="tablist" aria-label="Organization management">
+              <button class="tab active" type="button" data-org-tab="assignments">
+                People assignments
+              </button>
+              <button class="tab" type="button" data-org-tab="departments">
+                Departments
+              </button>
+              <button class="tab" type="button" data-org-tab="teams">
+                Teams
+              </button>
+            </div>
 
-          <form id="teamForm" class="org-form">
-            <h3>Create or update team</h3>
-            <input name="id" type="hidden" />
-            <label>Department<select name="departmentId" id="teamDepartment" required></select></label>
-            <label>Code<input name="teamCode" maxlength="30" pattern="[A-Za-z0-9_-]{2,30}" required /></label>
-            <label>Name<input name="teamName" maxlength="80" required /></label>
-            <label>Team lead<select name="teamLeadEmployeeId" id="teamLead"><option value="">No lead assigned</option></select></label>
-            <label class="org-check"><input name="isActive" type="checkbox" checked /> Active</label>
-            <div><button class="btn primary" type="submit">Save team</button> <button class="btn" id="clearTeam" type="button">Clear</button></div>
-            <div id="teamList" class="org-admin-list"></div>
-          </form>
-        </div>
-      </section>
-    </main>
+            <div class="tab-panel active" id="org-tab-assignments">
+              <div class="org-form-grid">
+                <form id="managerForm" class="org-form">
+                  <div>
+                    <h3>Reporting relationship</h3>
+                    <p class="muted">Assign an employee's direct or dotted-line manager.</p>
+                  </div>
+                  <label>
+                    Employee
+                    <select name="employeeId" id="managerEmployee" required></select>
+                  </label>
+                  <label>
+                    Manager
+                    <select name="managerId" id="managerAccount" required></select>
+                  </label>
+                  <label>
+                    Relationship
+                    <select name="relationshipType">
+                      <option value="primary">Direct manager</option>
+                      <option value="dotted_line">Dotted-line manager</option>
+                    </select>
+                  </label>
+                  <label>
+                    Effective from
+                    <input name="effectiveFrom" id="managerEffectiveDate" type="date" required />
+                  </label>
+                  <label>
+                    Reason for change
+                    <textarea name="reason" maxlength="255" placeholder="Optional note for the audit log"></textarea>
+                  </label>
+                  <button class="btn primary" type="submit">Save reporting relationship</button>
+                </form>
+
+                <form id="membershipForm" class="org-form">
+                  <div>
+                    <h3>Department and team</h3>
+                    <p class="muted">Place an employee in the correct organizational unit.</p>
+                  </div>
+                  <label>
+                    Employee
+                    <select name="employeeId" id="membershipEmployee" required></select>
+                  </label>
+                  <label>
+                    Department
+                    <select name="departmentId" id="membershipDepartment" required></select>
+                  </label>
+                  <label>
+                    Team or unit
+                    <select name="teamId" id="membershipTeam">
+                      <option value="">No team</option>
+                    </select>
+                  </label>
+                  <button class="btn primary" type="submit">Save membership</button>
+                </form>
+              </div>
+            </div>
+
+            <div class="tab-panel" id="org-tab-departments">
+              <form id="departmentForm" class="org-form org-entity-form">
+                <div>
+                  <h3>Create or update department</h3>
+                  <p class="muted">Choose an existing department below to edit it.</p>
+                </div>
+                <input name="id" type="hidden" />
+                <div class="org-form-fields">
+                  <label>
+                    Code
+                    <input name="departmentCode" maxlength="30" pattern="[A-Za-z0-9_-]{2,30}" required />
+                  </label>
+                  <label>
+                    Name
+                    <input name="departmentName" maxlength="80" required />
+                  </label>
+                  <label>
+                    Department head
+                    <select name="headEmployeeId" id="departmentHead">
+                      <option value="">No head assigned</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="org-check">
+                  <input name="isActive" type="checkbox" checked />
+                  Active department
+                </label>
+                <div class="toolbar">
+                  <button class="btn primary" type="submit">Save department</button>
+                  <button class="btn" id="clearDepartment" type="button">Create new</button>
+                </div>
+                <div>
+                  <h4>Existing departments</h4>
+                  <div id="departmentList" class="org-admin-list"></div>
+                </div>
+              </form>
+            </div>
+
+            <div class="tab-panel" id="org-tab-teams">
+              <form id="teamForm" class="org-form org-entity-form">
+                <div>
+                  <h3>Create or update team</h3>
+                  <p class="muted">Choose an existing team below to edit it.</p>
+                </div>
+                <input name="id" type="hidden" />
+                <div class="org-form-fields">
+                  <label>
+                    Department
+                    <select name="departmentId" id="teamDepartment" required></select>
+                  </label>
+                  <label>
+                    Code
+                    <input name="teamCode" maxlength="30" pattern="[A-Za-z0-9_-]{2,30}" required />
+                  </label>
+                  <label>
+                    Name
+                    <input name="teamName" maxlength="80" required />
+                  </label>
+                  <label>
+                    Team lead
+                    <select name="teamLeadEmployeeId" id="teamLead">
+                      <option value="">No lead assigned</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="org-check">
+                  <input name="isActive" type="checkbox" checked />
+                  Active team
+                </label>
+                <div class="toolbar">
+                  <button class="btn primary" type="submit">Save team</button>
+                  <button class="btn" id="clearTeam" type="button">Create new</button>
+                </div>
+                <div>
+                  <h4>Existing teams</h4>
+                  <div id="teamList" class="org-admin-list"></div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
     <script src="Js/auth.js" data-roles="admin,hr,manager,employee,leadership"></script>
     <script src="Js/organization.js"></script>
   </body>
