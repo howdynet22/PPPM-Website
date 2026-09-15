@@ -1288,6 +1288,17 @@ button {
 .org-page {
   background: #f4f7fb;
 }
+.org-page .sidebar #backToDashboard {
+  margin: 4px 0 14px;
+  color: #fff;
+  font-weight: 700;
+  background: #1b293d;
+  border: 1px solid #3a4a62;
+}
+.org-page .sidebar #backToDashboard:hover {
+  background: #26364d;
+  border-color: #64748b;
+}
 .org-page .personal-identity {
   display: grid;
   justify-items: end;
