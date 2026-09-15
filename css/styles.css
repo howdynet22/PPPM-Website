@@ -1346,12 +1346,12 @@ button {
 .org-tree details {
   margin: 10px 0;
 }
-.org-tree summary {
-  display: flex;
+.org-tree summary.org-node-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 18px;
   list-style: none;
-  cursor: pointer;
 }
 .org-tree summary::-webkit-details-marker {
   display: none;
@@ -1362,6 +1362,7 @@ button {
   width: 100%;
   padding: 13px 15px;
   color: var(--text);
+  font: inherit;
   text-align: left;
   background: #fff;
   border: 1px solid var(--line);
@@ -1374,17 +1375,50 @@ button {
   background: #f8faff;
   box-shadow: 0 3px 10px rgb(40 88 173 / 8%);
 }
-.org-node-card span,
-.org-node-card small {
+.org-node-card:focus-visible {
+  outline: 3px solid #75a5f8;
+  outline-offset: 3px;
+}
+.org-node-details {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.org-node-details span,
+.org-node-details small {
   color: var(--muted);
 }
-.org-child-count {
-  min-width: 28px;
-  padding: 4px 7px;
-  border-radius: 999px;
+.org-node-card .org-expand-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 154px;
+  padding: 9px 11px;
   color: #234b91;
-  text-align: center;
-  background: #e8eefc;
+  font-size: 12px;
+  font-weight: 700;
+  background: #eef3fc;
+  border: 1px solid #b9cbea;
+  border-radius: 7px;
+}
+.org-node-card:hover .org-expand-control {
+  background: #e2ebfa;
+  border-color: #8eaddd;
+}
+.org-chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform .15s ease;
+}
+.org-tree details[open] > summary .org-chevron {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+.org-parent-action {
+  margin: 8px 0 2px 12px;
 }
 .org-children {
   margin-left: 25px;
