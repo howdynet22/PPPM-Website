@@ -1284,39 +1284,212 @@ button {
   cursor: not-allowed;
 }
 
-/* Organization hierarchy */
-.org-page { background: #f4f7fb; }
-.org-shell { width: min(1440px, calc(100% - 32px)); margin: 24px auto 48px; display: grid; gap: 18px; }
-.org-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-.org-header h1 { margin: 3px 0 8px; }
-.org-header-actions { display: flex; gap: 8px; }
-.org-message { min-height: 22px; color: #166534; font-weight: 700; }
-.org-message.error { color: #b91c1c; }
-.org-filters, .org-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.org-filters label, .org-form label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 700; }
-.org-filters input, .org-filters select, .org-form input, .org-form select, .org-form textarea { width: 100%; }
-.org-columns { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, .7fr); gap: 18px; }
-.org-tree details { margin: 8px 0; }
-.org-tree summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; }
-.org-tree summary::-webkit-details-marker { display: none; }
-.org-node-card { display: grid; gap: 2px; width: 100%; padding: 10px 12px; text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
-.org-node-card span, .org-node-card small { color: var(--muted); }
-.org-child-count { min-width: 24px; padding: 4px; border-radius: 999px; text-align: center; background: #e8eefc; }
-.org-children { margin-left: 24px; padding-left: 14px; border-left: 2px solid #dbe5f4; }
-.org-leaf { margin: 8px 0; }
-.org-path { display: grid; justify-items: stretch; }
-.org-path-node { display: grid; gap: 3px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
-.org-path-node span, .org-path-node small { color: var(--muted); font-size: 11px; }
-.org-path-arrow { text-align: center; padding: 4px; color: var(--muted); font-weight: 800; }
-.org-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.org-form { display: grid; gap: 12px; align-content: start; border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
-.org-form h3 { margin: 0; }
-.org-form .org-check { display: flex; align-items: center; grid-template-columns: auto 1fr; }
-.org-form .org-check input { width: auto; }
-.org-admin-list { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
+/* Organization workspace */
+.org-page {
+  background: #f4f7fb;
+}
+.org-page .personal-identity {
+  display: grid;
+  justify-items: end;
+  line-height: 1.3;
+}
+.org-page .personal-identity span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.org-message {
+  min-height: 0;
+  color: #166534;
+  font-weight: 700;
+}
+.org-message:not(:empty) {
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  background: #f0fdf4;
+}
+.org-message.error:not(:empty) {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.org-filters {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) repeat(2, minmax(180px, 1fr));
+  gap: 14px;
+  margin: 18px 0 10px;
+}
+.org-filters label,
+.org-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.org-filters input,
+.org-filters select,
+.org-form input,
+.org-form select,
+.org-form textarea {
+  width: 100%;
+}
+.org-directory-summary {
+  margin: 10px 0 4px;
+  font-size: 13px;
+}
+.org-tree {
+  max-width: 900px;
+}
+.org-tree details {
+  margin: 10px 0;
+}
+.org-tree summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  cursor: pointer;
+}
+.org-tree summary::-webkit-details-marker {
+  display: none;
+}
+.org-node-card {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 13px 15px;
+  color: var(--text);
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.org-node-card:hover {
+  border-color: #9db7e5;
+  background: #f8faff;
+  box-shadow: 0 3px 10px rgb(40 88 173 / 8%);
+}
+.org-node-card span,
+.org-node-card small {
+  color: var(--muted);
+}
+.org-child-count {
+  min-width: 28px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: #234b91;
+  text-align: center;
+  background: #e8eefc;
+}
+.org-children {
+  margin-left: 25px;
+  padding-left: 17px;
+  border-left: 2px solid #dbe5f4;
+}
+.org-leaf {
+  margin: 10px 0;
+}
+.org-path-card {
+  max-width: 900px;
+}
+.org-path {
+  display: grid;
+  max-width: 680px;
+  margin-top: 18px;
+}
+.org-path-node {
+  display: grid;
+  gap: 4px;
+  padding: 15px 17px;
+  border: 1px solid var(--line);
+  border-left: 4px solid #2858ad;
+  border-radius: 8px;
+  background: #fff;
+}
+.org-path-node span,
+.org-path-node small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.org-path-arrow {
+  padding: 5px 0;
+  color: #64748b;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 800;
+}
+.org-management-tabs {
+  margin-bottom: 20px;
+}
+.org-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.org-form {
+  display: grid;
+  gap: 15px;
+  align-content: start;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+.org-form h3,
+.org-form h4 {
+  margin: 0;
+}
+.org-form-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+.org-form .org-check {
+  display: flex;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 9px;
+  color: var(--text);
+}
+.org-form .org-check input {
+  width: auto;
+}
+.org-admin-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.org-admin-list > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.org-admin-list > span .btn:first-child {
+  flex: 1;
+  justify-content: flex-start;
+  text-align: left;
+}
 @media (max-width: 800px) {
-  .org-header { align-items: flex-start; flex-direction: column; }
-  .org-columns, .org-form-grid, .org-filters { grid-template-columns: 1fr; }
+  .org-filters,
+  .org-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .org-page .personal-identity {
+    justify-items: start;
+  }
+  .org-page .section-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .org-children {
+    margin-left: 12px;
+    padding-left: 10px;
+  }
 }
 .btn:focus-visible,
 .nav-btn:focus-visible,
