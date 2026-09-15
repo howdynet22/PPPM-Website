@@ -102,13 +102,25 @@
 
   function treeNode(person, open = false) {
     const children = person.children || [];
-    const card = `<button type="button" class="org-node-card" data-view-path="${person.id}">
-      <strong>${esc(person.full_name)}</strong><span>${esc(person.job_title || "—")}</span>
+    const details = `<span class="org-node-details">
+      <strong>${esc(person.full_name)}</strong>
+      <span>${esc(person.job_title || "—")}</span>
       <small>${esc(person.department_name)}${person.team_name ? ` · ${esc(person.team_name)}` : ""}</small>
-    </button>`;
-    if (!children.length) return `<div class="org-leaf">${card}</div>`;
-    return `<details ${open ? "open" : ""}><summary>${card}<span class="org-child-count">${children.length}</span></summary>
-      <div class="org-children">${children.map((child) => treeNode(child)).join("")}</div></details>`;
+    </span>`;
+    if (!children.length) {
+      return `<div class="org-leaf"><button type="button" class="org-node-card" data-view-path="${person.id}">${details}</button></div>`;
+    }
+    const reportLabel = children.length === 1 ? "1 direct report" : `${children.length} direct reports`;
+    return `<details ${open ? "open" : ""}>
+      <summary class="org-node-card">
+        ${details}
+        <span class="org-expand-control"><span>${reportLabel}</span><span class="org-chevron" aria-hidden="true"></span></span>
+      </summary>
+      <div class="org-parent-action">
+        <button class="btn small" type="button" data-view-path="${person.id}">View reporting path</button>
+      </div>
+      <div class="org-children">${children.map((child) => treeNode(child)).join("")}</div>
+    </details>`;
   }
 
   function renderTree() {
