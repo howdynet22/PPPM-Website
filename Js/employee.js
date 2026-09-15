@@ -29,6 +29,7 @@
     content.querySelectorAll('[data-work-id]').forEach(b=>b.onclick=()=>openWorkItem(b.dataset.workType,Number(b.dataset.workId)));
     content.querySelectorAll('[data-create]').forEach(b=>b.onclick=()=>createForm(b.dataset.create));
     content.querySelectorAll('[data-feedback]').forEach(b=>b.onclick=()=>feedbackForm(Number(b.dataset.feedback)));
+    updatePersonalNavigation();
   }
   async function refresh() {
     if (busy || document.hidden) return;
@@ -81,8 +82,20 @@
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
   setInterval(refresh,15000);
   function updatePersonalNavigation() {
-    const current=location.hash || '#development';
-    document.querySelectorAll('.sidebar .nav-btn[href^="#"]').forEach(link=>link.classList.toggle('active',link.getAttribute('href')===current));
+    const requested=location.hash.slice(1);
+    const current=['development','improvement','feedback'].includes(requested)?requested:'development';
+    const viewCopy={
+      development:['Development','Your goals and development plans.'],
+      improvement:['Improvement Plans','Your assigned performance improvement plans and progress.'],
+      feedback:['Reviews & Feedback','Complete feedback requests and view released review results.']
+    };
+    document.querySelectorAll('.sidebar .nav-btn[href^="#"]').forEach(link=>link.classList.toggle('active',link.getAttribute('href')===`#${current}`));
+    content.querySelectorAll('.workspace-section').forEach(section=>{section.hidden=section.id!==current;});
+    content.querySelector('.employee-kpis')?.toggleAttribute('hidden',current!=='development');
+    const title=document.querySelector('.topbar .title h1');
+    const subtitle=document.querySelector('.topbar .title p');
+    if(title)title.textContent=viewCopy[current][0];
+    if(subtitle)subtitle.textContent=viewCopy[current][1];
   }
   window.addEventListener('hashchange',updatePersonalNavigation);
   updatePersonalNavigation();
