@@ -1,8 +1,62 @@
-# PPPM — manager / employee update
+# PPPM Performance and Development Tracker
 
-Based on `actionable-goal-steps` (8936ccc). This update implements the employee
-workspace and updates the manager experience. HR and system administrator
-screens are maintained separately by a teammate; those HTML screens are unchanged.
+## Final employee and manager handoff
+
+The final product integrates all nine original branch histories. The completed
+employee update is restored after reconciling the rollback branch. Earlier
+manager and demo branches that had already been cherry-picked are included in
+the ancestry without overwriting newer work. No source branches were deleted.
+
+- [Core feature inventory](docs/core-features.md)
+- [Demonstration and feature tests](docs/demonstration-tests.md) — 36 manual cases
+- [Verified application run](https://github.com/howdynet22/PPPM-Website/actions/runs/34936470147)
+
+The employee and manager workspaces are implemented. The teammate should build
+the HR and system administrator screens and their remaining administrative
+workflows: review-cycle setup, participant assignment, stage changes and release;
+user/role management and recovery; and HR case management. Employment type,
+location and richer employment-status fields are not implemented yet.
+
+Reuse the shared organization page, authentication, work-item controls and API
+permissions. The current HR/admin pages are placeholders. Password Help provides
+contact instructions, not email reset. Leadership uses the admin destination as
+a placeholder; it is not a completed executive dashboard.
+
+Peer nominations now run from employee nomination to manager approval and an
+assigned peer form. Decisions are transactional and repeated decisions are
+rejected. Manager reviews respect cycle stage and deadline. The focused demo
+includes Jamie's manager-ready review so it can be demonstrated without HR
+cycle controls. Existing installations retain their existing data; the demo
+fixture is an explicit separate setup.
+
+### Shared API contract for the teammate
+
+All actions use `api.php?action=...`. GET reads do not mutate data. POST writes
+require JSON and `X-CSRF-Token` from `me`. Authorization is enforced server-side.
+
+| Read action | Returned capability |
+| --- | --- |
+| `me` | Identity, permissions, available workspaces, CSRF token |
+| `workspace&scope=employee` | Current account's goals, PDPs, PIPs, reviews, requests and nominations |
+| `workspace&scope=hr` | Explicitly owned PIPs when `hr.pips` is granted, plus reporting path |
+| `workspace&scope=executive` | Active people, department and team counts |
+| `dashboard` | Permitted manager team and performance records |
+| `org_tree`, `org_path`, `org_departments`, `org_teams` | Permission-scoped organizational views |
+| `work_item&type=goal&id=...` | Shared work-item dialog data; also `pdp_action` and `pip_objective` |
+| `peer_candidates&participantId=...` | Eligible colleagues for an owned open review |
+| `feedback_form&id=...` | The current respondent's assigned form |
+
+Mutations already include `nominate_peer`, `decide_peer`, `submit_personal_feedback`,
+`submit_review`, `create_goal`, `create_pdp`, `create_pip`, PIP follow-up actions,
+step updates, notification read state and organization management. HR cycle
+administration, account CRUD and role administration APIs are **not** completed
+by the presence of permission names alone.
+
+Do not use job titles or selected workspaces as authorization. Preserve private
+record ownership when reorganizing reporting lines. Formal release must continue
+to gate employee results and the anonymity threshold must continue to gate peer
+aggregates. The CEO fixture has no personal workspace; other demo people do.
+
 
 ## Development and workspaces
 
@@ -111,9 +165,30 @@ Run checks against an isolated, freshly seeded test database:
 - `php tests/demo_reset.php` with `PPPM_DB_NAME` containing `test`.
   Tests preservation of an unrelated user and goal, fixture count and idempotency.
 - Import `tests/organization_checks.sql` and `tests/actionable_steps_checks.sql`
-  into the database being checked; integrity queries should return no rows.
+  into the database being checked. Violation queries should return no rows;
+  the invalid-parent count should be zero and the authorship query is informational.
 - Lint PHP files with `php -l` and JavaScript files with `node --check`.
 
-Verified locally with PHP 8.2 / MariaDB: fresh installation, migration of all
-22 existing users and 123 steps, permission/API scenarios, safe reset, and browser
-flows for workspace switching, step saves, reload persistence and mobile layout.
+Verified in GitHub Actions using PHP 8.2, MySQL 8 and Chromium: syntax,
+upgrade preservation of the previous main user identities, fresh schema,
+safe fixture reset, step progress, ownership/CSRF checks, employee workflows,
+peer nominations and feedback, manager review submission, PIP transitions,
+password/sign-out, search, report/CSV, workspace switching, mobile saves,
+reload persistence and failed-save draft retention.
+
+For the added handoff and browser suites, start from a freshly reset isolated
+fixture before **each** suite:
+
+```sh
+php scripts/demo.php reset
+PPPM_TEST_URL=http://127.0.0.1:8080 node tests/handoff.mjs
+php scripts/demo.php reset
+PPPM_TEST_URL=http://127.0.0.1:8080 node tests/browser.mjs
+```
+
+The browser suite requires Playwright and Chromium (the workflow installs them).
+`php tests/work_progress.php` runs without a database. `tests/demo_reset.php`
+requires a database name containing `test`. Do not run destructive test fixtures
+against the live installation. The manual runbook is for your local XAMPP
+rehearsal; automated success does not mark its blank results as completed.
+
