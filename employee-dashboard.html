@@ -1,37 +1,9 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Employee Dashboard</title>
-    <!-- Shared page styles -->
-    <link rel="stylesheet" href="css/styles.css" />
-  </head>
-  <body class="placeholder-dashboard">
-    <!-- Employee placeholder content -->
-    <main class="shell">
-      <div class="card">
-        <p class="role" data-user-role>Employee</p>
-        <h1>Employee Dashboard</h1>
-        <p>
-          Signed in as <strong data-user-name></strong> (<span
-            data-user-email
-          ></span
-          >).
-        </p>
-        <p class="muted">
-          Access to this area is checked against your database role and
-          permissions. Unauthorized users are redirected automatically.
-        </p>
-        <div class="grid">
-          <div class="item" data-permission="employee.dashboard">
-            <strong>Dashboard access</strong>
-            <p class="muted">Your employee dashboard permission is active.</p>
-          </div>
-        </div>
-      </div>
-    </main>
-    <!-- Authentication and permission checks -->
-    <script src="Js/auth.js" data-roles="employee"></script>
-  </body>
-</html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Employee workspace | P&D Tracker</title><link rel="stylesheet" href="css/styles.css"></head>
+<body class="employee-workspace"><main class="employee-shell">
+<header class="topbar"><div class="title"><p class="role">P&D TRACKER · Employee workspace</p><h1>My development</h1><p>Your goals, development plans and feedback in one place.</p></div><div id="workspaceControls"></div></header>
+<div class="section-head"><p><strong data-user-name></strong><br><span class="muted" data-user-role></span></p><a class="btn" href="org-structure.html">My reporting path</a></div>
+<nav class="workspace-tabs" aria-label="Personal sections"><a href="#development">Development</a><a href="#improvement">Improvement plans</a><a href="#feedback">Reviews & feedback</a></nav>
+<p id="employeeMessage" role="status" aria-live="polite">Loading your workspace…</p><div id="employeeContent" aria-busy="true"></div>
+</main><script src="Js/auth.js" data-workspace="employee"></script><script src="Js/work-items.js"></script><script src="Js/employee.js"></script></body></html>

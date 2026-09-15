@@ -27,6 +27,9 @@
         >
           My Team
         </button>
+        <a class="nav-btn" href="org-structure.html" data-permission="org.structure.view">
+          Organization hierarchy
+        </a>
         <button
           class="nav-btn"
           data-page="reviews"
@@ -52,13 +55,14 @@
           Reports & Insights
         </button>
         <div class="nav-title">Personal</div>
-        <button class="nav-btn" data-page="personal">My Dashboard</button>
+        <a class="nav-btn" href="employee-dashboard.html">Employee workspace</a>
         <button class="nav-btn" data-page="notifications">Notifications</button>
         <div class="sidebar-bottom">
           <button class="nav-btn" id="logoutBtn">Sign out</button>
         </div>
       </aside>
       <main class="main">
+        <p id="managerSync" role="status" aria-live="polite">Loading team data…</p>
         <!-- Current page heading and quick actions -->
         <header class="topbar">
           <div class="title">
@@ -79,7 +83,7 @@
             <div class="card kpi">
               <div class="label">Team members</div>
               <div class="value" id="kpiTeam">—</div>
-              <div class="sub">Direct reports</div>
+              <div class="sub">Direct reports and descendants</div>
             </div>
             <div class="card kpi">
               <div class="label">Average performance</div>
@@ -92,9 +96,9 @@
               <div class="sub">Self / manager review tasks</div>
             </div>
             <div class="card kpi">
-              <div class="label">Development progress</div>
+              <div class="label">Development steps</div>
               <div class="value" id="kpiPdp">—</div>
-              <div class="sub">Average PDP action progress</div>
+              <div class="sub">Completed PDP steps</div>
             </div>
           </div>
           <div class="grid two">
@@ -155,13 +159,13 @@
           </div>
         </section>
 
-        <!-- Direct reports page -->
+        <!-- Organization-scoped team page -->
         <section class="page" id="page-team">
           <div class="card">
             <div class="section-head">
               <div>
                 <h2>My Team</h2>
-                <p>Only employees assigned to you are shown.</p>
+                <p>Direct reports, permitted descendants and your assigned historical records.</p>
               </div>
               <div class="toolbar">
                 <input
@@ -291,7 +295,7 @@
             <div class="section-head">
               <div>
                 <h2>Goals & Personal Development Plans</h2>
-                <p>Create team goals, track progress and manage PDP actions.</p>
+                <p>Create goals and PDPs as concrete, checkable steps.</p>
               </div>
               <div class="toolbar">
                 <button
@@ -322,7 +326,7 @@
                       <th>Employee</th>
                       <th>Goal</th>
                       <th>Target / due</th>
-                      <th>Progress</th>
+                      <th>Steps</th>
                       <th>Status</th>
                       <th>Action</th>
                     </tr>
@@ -339,7 +343,7 @@
                       <th>Employee</th>
                       <th>PDP action</th>
                       <th>Due</th>
-                      <th>Progress</th>
+                      <th>Steps</th>
                       <th>Status</th>
                       <th>Action</th>
                     </tr>
@@ -358,8 +362,8 @@
               <div>
                 <h2>Performance Improvement Plans</h2>
                 <p>
-                  Initiate measurable PIPs, define objectives and record
-                  check-ins. HR ownership is required for each PIP.
+                  Define PIP objectives as actionable steps and record check-ins.
+                  HR ownership is required for each PIP.
                 </p>
               </div>
               <button
@@ -381,7 +385,7 @@
                     <th>Employee</th>
                     <th>Reason</th>
                     <th>Period</th>
-                    <th>Objectives</th>
+                    <th>Steps</th>
                     <th>Status</th>
                     <th>Action</th>
                   </tr>
@@ -402,8 +406,8 @@
             </div>
             <div class="card kpi">
               <div class="label">Goal completion</div>
-              <div class="value" id="reportGoal">0%</div>
-              <div class="sub">Team goal progress</div>
+              <div class="value" id="reportGoal">0/0 steps</div>
+              <div class="sub">Completed team-goal steps</div>
             </div>
             <div class="card kpi">
               <div class="label">Skill gaps</div>
@@ -452,88 +456,6 @@
             <div id="reportOutput" class="notice">
               No report generated yet. Generate a report to see a summary of
               team performance, development, review completion and PIP status.
-            </div>
-          </div>
-        </section>
-
-        <!-- Manager's personal dashboard page -->
-        <section class="page" id="page-personal">
-          <div class="grid two">
-            <div class="card">
-              <div class="profile-card">
-                <div class="profile-avatar" id="personalInitials">—</div>
-                <div>
-                  <h2 id="personalName" class="profile-name">
-                    Loading profile…
-                  </h2>
-                  <p class="muted profile-meta" id="personalMeta">
-                    Manager profile
-                  </p>
-                </div>
-              </div>
-              <div class="detail-grid profile-details">
-                <div class="detail-box">
-                  <small>Latest rating</small
-                  ><strong id="personalRating">—</strong>
-                </div>
-                <div class="detail-box">
-                  <small>Active goals</small
-                  ><strong id="personalGoalCount">0</strong>
-                </div>
-                <div class="detail-box">
-                  <small>PDP progress</small
-                  ><strong id="personalPdpProgress">—</strong>
-                </div>
-              </div>
-            </div>
-            <div class="card">
-              <div class="section-head">
-                <div>
-                  <h2>My review tasks</h2>
-                  <p>
-                    Your own review and development status from the database.
-                  </p>
-                </div>
-              </div>
-              <div class="checklist" id="personalTasks">
-                <div class="empty">No active personal review tasks.</div>
-              </div>
-            </div>
-          </div>
-          <div class="grid three section-spacing">
-            <div class="card">
-              <div class="section-head">
-                <div>
-                  <h2>My goals</h2>
-                  <p>Personal goals stored in the database.</p>
-                </div>
-                <button
-                  class="btn primary"
-                  id="personalGoalBtn"
-                  data-permission="manager.goals"
-                >
-                  + Goal
-                </button>
-              </div>
-              <div id="personalGoals"></div>
-            </div>
-            <div class="card">
-              <div class="section-head">
-                <div>
-                  <h2>My development</h2>
-                  <p>Personal PDP actions and progress.</p>
-                </div>
-              </div>
-              <div id="personalPdp" class="activity"></div>
-            </div>
-            <div class="card">
-              <div class="section-head">
-                <div>
-                  <h2>My 360° feedback</h2>
-                  <p>Aggregated feedback with identities hidden.</p>
-                </div>
-              </div>
-              <div id="personalFeedback" class="metric-list"></div>
             </div>
           </div>
         </section>
@@ -658,7 +580,7 @@
         ],
         team: [
           "My Team",
-          "View direct reports and take employee performance actions.",
+          "View direct reports and permitted organizational descendants.",
         ],
         reviews: [
           "Reviews & Feedback",
@@ -666,11 +588,11 @@
         ],
         goals: [
           "Goals & PDPs",
-          "Create goals, approve progress and manage personal development actions.",
+          "Create goals and manage concrete personal development steps.",
         ],
         pips: [
           "Performance Improvement",
-          "Manage measurable PIPs and record progress check-ins.",
+          "Manage actionable PIP steps and record check-ins.",
         ],
         reports: [
           "Reports & Insights",
@@ -750,6 +672,7 @@
       });
     </script>
     <!-- Database-backed manager functions -->
+    <script src="Js/work-items.js"></script>
     <script src="Js/manager-db.js"></script>
     <!-- Authentication and permission checks -->
     <script src="Js/auth.js" data-roles="manager"></script>

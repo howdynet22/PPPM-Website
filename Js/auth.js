@@ -1,6 +1,10 @@
 (function () {
   // Authentication settings for the current dashboard page.
   const API = "api.php?action=";
+  const workspace = document.currentScript?.dataset.workspace || ({
+    'employee-dashboard.html':'employee', 'manager-dashboard.html':'manager',
+    'hr-dashboard.html':'hr', 'admin-dashboard.html':'executive',
+  }[location.pathname.split('/').pop()] || '');
   const allowed = (document.currentScript?.dataset.roles || "")
     .split(",")
     .map((s) => s.trim())
@@ -206,7 +210,9 @@
         <button class="auth-btn danger" id="authLogoutBtn" type="button">
           Sign out
         </button>`;
-      document.body.appendChild(controls);
+      const employeeShell=document.querySelector('.employee-shell');
+      if(employeeShell) employeeShell.prepend(controls);
+      else document.body.appendChild(controls);
       document.getElementById("changePasswordBtn").onclick = openPasswordModal;
       document.getElementById("authLogoutBtn").onclick = logout;
     }
@@ -233,10 +239,32 @@
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-      if (required.length && !required.some((p) => permissions.has(p))) {
-        el.hidden = true;
-      }
+      el.hidden = required.length > 0 && !required.some((p) => permissions.has(p));
     });
+  }
+
+  function addWorkspaceSwitcher(user) {
+    const spaces = user.workspaces || [];
+    if (!spaces.length) return;
+    let host = document.getElementById('workspaceControls');
+    if (!host) {
+      host = document.createElement('div'); host.id = 'workspaceControls';
+      const target = document.querySelector('.sidebar .brand, main .card, main');
+      target?.insertAdjacentElement('afterend', host);
+    }
+    const label = document.createElement('label'); label.className='workspace-switcher';
+    label.textContent='Workspace';
+    const select = document.createElement('select'); select.setAttribute('aria-label','Workspace');
+    for (const space of spaces) {
+      const option=document.createElement('option'); option.value=space.key; option.textContent=space.label;
+      option.selected=space.key===workspace; select.append(option);
+    }
+    select.onchange=()=>{
+      const selected=spaces.find(s=>s.key===select.value);
+      if(selected){try{localStorage.setItem('pppm.workspace.'+user.id,selected.key);}catch(_){} location.href=selected.path;}
+    };
+    label.append(select); host.replaceChildren(label);
+    if(workspace){try{localStorage.setItem('pppm.workspace.'+user.id,workspace);}catch(_){}}
   }
 
   // Verify the session and initialise the page.
@@ -246,16 +274,24 @@
       const user = result.user;
       window.currentCsrfToken =
         result.csrfToken || window.currentCsrfToken || "";
-      if (allowed.length && !allowed.includes(user.role)) {
+      const isOrganizationPage=location.pathname.endsWith('/org-structure.html');
+      if (workspace ? !(user.workspaces || []).some(s=>s.key===workspace) : (isOrganizationPage ? !(user.permissions || []).includes('org.structure.view') : (allowed.length && !allowed.includes(user.role)))) {
         window.location.href = user.dashboard_path || "index.html";
         return;
       }
       applyUser(user);
       addControls();
+      addWorkspaceSwitcher(user);
       document.documentElement.dataset.authenticated = "true";
       window.currentAuthUser = user;
       window.openChangePassword = openPasswordModal;
       window.logout = logout;
+      window.applyAuthUser=(freshUser)=>{
+        applyUser(freshUser);
+        if(freshUser.workspaces && JSON.stringify(freshUser.workspaces)!==JSON.stringify(window.currentAuthUser?.workspaces)) addWorkspaceSwitcher(freshUser);
+        window.currentAuthUser=freshUser;
+      };
+      window.dispatchEvent(new CustomEvent('pppm:authenticated', {detail:user}));
     } catch (err) {
       window.location.href = "index.html";
     }

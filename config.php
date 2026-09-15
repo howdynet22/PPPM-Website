@@ -161,7 +161,7 @@ function require_login(): array
         u.email,
         u.role,
         u.job_title,
-        u.department,
+        (SELECT department_name FROM departments WHERE id=u.department_id) AS department,
         r.display_name AS role_name,
         r.dashboard_path
     FROM users u
@@ -267,17 +267,13 @@ function audit(
 
 function manager_employee(int $managerId, int $employeeId): bool
 {
-    $stmt = db()->prepare(
-        "SELECT COUNT(*) FROM users WHERE id = ? AND manager_id = ? AND role = 'employee' AND is_active = 1",
-    );
-    $stmt->execute([$employeeId, $managerId]);
-    return (bool) $stmt->fetchColumn();
+    return active_primary_manager($employeeId) === $managerId;
 }
 
 function participant_for_manager(int $managerId, int $participantId): ?array
 {
     $sql = <<<'SQL'
-    SELECT rp.*, rc.status AS cycle_status
+    SELECT rp.*, rc.status AS cycle_status, rc.manager_deadline
     FROM review_participants rp
     JOIN review_cycles rc ON rc.id = rp.cycle_id
     WHERE rp.id = ?
@@ -301,3 +297,5 @@ function valid_date(string $value): bool
             ($errors["warning_count"] === 0 && $errors["error_count"] === 0)) &&
         $date->format("Y-m-d") === $value;
 }
+
+require_once __DIR__ . "/organization.php";

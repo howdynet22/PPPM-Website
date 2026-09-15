@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Organization Hierarchy | Performance & Development Tracker</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body class="placeholder-dashboard org-page">
+    <main class="org-shell">
+      <header class="card org-header">
+        <div>
+          <p class="role" data-user-role>Organization</p>
+          <h1>Organization hierarchy</h1>
+          <p class="muted">Reporting lines are separate from job titles and system permissions.</p>
+        </div>
+        <div class="org-header-actions">
+          <a class="btn" id="backToDashboard" href="index.html">Dashboard</a>
+          <button class="btn" id="logoutBtn" type="button">Sign out</button>
+        </div>
+      </header>
+
+      <div id="orgMessage" class="org-message" role="status" aria-live="polite"></div>
+
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>Employee directory</h2>
+            <p>Search the part of the organization you are permitted to view.</p>
+          </div>
+        </div>
+        <div class="org-filters">
+          <label>Search
+            <input id="orgSearch" type="search" placeholder="Name, code, title or manager" />
+          </label>
+          <label>Department
+            <select id="orgDepartmentFilter"><option value="">All departments</option></select>
+          </label>
+          <label>Team or unit
+            <select id="orgTeamFilter"><option value="">All teams</option></select>
+          </label>
+        </div>
+        <div class="table-wrap">
+          <table class="table responsive-table">
+            <thead><tr><th>Employee</th><th>Position</th><th>Department / team</th><th>Direct manager</th><th>Action</th></tr></thead>
+            <tbody id="orgEmployeeRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="org-columns">
+        <section class="card">
+          <div class="section-head"><div><h2>Hierarchy</h2><p>Select a branch to expand it.</p></div></div>
+          <div id="orgTree" class="org-tree"></div>
+        </section>
+        <section class="card">
+          <div class="section-head"><div><h2>Reporting path</h2><p id="orgPathCaption">Select an employee.</p></div></div>
+          <div id="orgPath" class="org-path"></div>
+        </section>
+      </div>
+
+      <section class="card" id="orgManagePanel" data-permission="org.structure.manage">
+        <div class="section-head">
+          <div><h2>Manage organization</h2><p>Changes use employee accounts and are recorded in the audit log.</p></div>
+        </div>
+        <div class="org-form-grid">
+          <form id="managerForm" class="org-form">
+            <h3>Assign manager</h3>
+            <label>Employee<select name="employeeId" id="managerEmployee" required></select></label>
+            <label>Manager<select name="managerId" id="managerAccount" required></select></label>
+            <label>Relationship
+              <select name="relationshipType"><option value="primary">Primary</option><option value="dotted_line">Dotted line</option></select>
+            </label>
+            <label>Effective from<input name="effectiveFrom" id="managerEffectiveDate" type="date" required /></label>
+            <label>Change reason<textarea name="reason" maxlength="255" placeholder="Optional"></textarea></label>
+            <button class="btn primary" type="submit">Save reporting relationship</button>
+          </form>
+
+          <form id="membershipForm" class="org-form">
+            <h3>Assign department or team</h3>
+            <label>Employee<select name="employeeId" id="membershipEmployee" required></select></label>
+            <label>Department<select name="departmentId" id="membershipDepartment" required></select></label>
+            <label>Team or unit<select name="teamId" id="membershipTeam"><option value="">No team</option></select></label>
+            <button class="btn primary" type="submit">Save membership</button>
+          </form>
+
+          <form id="departmentForm" class="org-form">
+            <h3>Create or update department</h3>
+            <input name="id" type="hidden" />
+            <label>Code<input name="departmentCode" maxlength="30" pattern="[A-Za-z0-9_-]{2,30}" required /></label>
+            <label>Name<input name="departmentName" maxlength="80" required /></label>
+            <label>Department head<select name="headEmployeeId" id="departmentHead"><option value="">No head assigned</option></select></label>
+            <label class="org-check"><input name="isActive" type="checkbox" checked /> Active</label>
+            <div><button class="btn primary" type="submit">Save department</button> <button class="btn" id="clearDepartment" type="button">Clear</button></div>
+            <div id="departmentList" class="org-admin-list"></div>
+          </form>
+
+          <form id="teamForm" class="org-form">
+            <h3>Create or update team</h3>
+            <input name="id" type="hidden" />
+            <label>Department<select name="departmentId" id="teamDepartment" required></select></label>
+            <label>Code<input name="teamCode" maxlength="30" pattern="[A-Za-z0-9_-]{2,30}" required /></label>
+            <label>Name<input name="teamName" maxlength="80" required /></label>
+            <label>Team lead<select name="teamLeadEmployeeId" id="teamLead"><option value="">No lead assigned</option></select></label>
+            <label class="org-check"><input name="isActive" type="checkbox" checked /> Active</label>
+            <div><button class="btn primary" type="submit">Save team</button> <button class="btn" id="clearTeam" type="button">Clear</button></div>
+            <div id="teamList" class="org-admin-list"></div>
+          </form>
+        </div>
+      </section>
+    </main>
+    <script src="Js/auth.js" data-roles="admin,hr,manager,employee,leadership"></script>
+    <script src="Js/organization.js"></script>
+  </body>
+</html>

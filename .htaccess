@@ -17,3 +17,9 @@ Options -Indexes
 <FilesMatch "^(?:config\.php|schema\.sql|users\.txt|README-AUTH\.md)$">
   Require all denied
 </FilesMatch>
+
+# Keep source control, upgrade scripts and test utilities out of HTTP routes.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule (^|/)(\.git|migrations|scripts|tests|docs)(/|$) - [F,L]
+</IfModule>

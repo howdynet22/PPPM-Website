@@ -1,0 +1,224 @@
+(function () {
+  const API = "api.php?action=";
+  const state = { user: null, people: [], tree: [], departments: [], teams: [] };
+  const $ = (selector) => document.querySelector(selector);
+  const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
+  })[c]);
+
+  async function request(action, options = {}) {
+    const method = String(options.method || "GET").toUpperCase();
+    const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+    if (method !== "GET") headers["X-CSRF-Token"] = window.currentCsrfToken || "";
+    const response = await fetch(API + action, { credentials: "same-origin", ...options, headers });
+    const result = await response.json().catch(() => ({ ok: false, error: "Invalid server response" }));
+    if (!result.ok) throw new Error(result.error || "Request failed");
+    if (result.csrfToken) window.currentCsrfToken = result.csrfToken;
+    return result;
+  }
+
+  function message(text, error = false) {
+    const box = $("#orgMessage");
+    box.textContent = text;
+    box.classList.toggle("error", error);
+    if (text) setTimeout(() => { if (box.textContent === text) box.textContent = ""; }, 4500);
+  }
+
+  function optionList(includeBlank = false) {
+    return (includeBlank ? '<option value="">None</option>' : "") + state.people.map((person) =>
+      `<option value="${person.id}">${esc(person.full_name)} — ${esc(person.job_title || "No title")} (${esc(person.emp_code)})</option>`,
+    ).join("");
+  }
+
+  function departmentOptions(includeBlank = false) {
+    return (includeBlank ? '<option value="">All departments</option>' : "") + state.departments.map((department) =>
+      `<option value="${department.id}">${esc(department.department_name)}</option>`,
+    ).join("");
+  }
+
+  function teamOptions(departmentId, includeBlank = true) {
+    const choices = state.teams.filter((team) => !departmentId || Number(team.department_id) === Number(departmentId));
+    return (includeBlank ? '<option value="">No team</option>' : "") + choices.map((team) =>
+      `<option value="${team.id}">${esc(team.team_name)}</option>`,
+    ).join("");
+  }
+
+  function renderDirectory() {
+    const search = $("#orgSearch").value.trim().toLowerCase();
+    const department = $("#orgDepartmentFilter").value;
+    const team = $("#orgTeamFilter").value;
+    const rows = state.people.filter((person) => {
+      const haystack = [person.full_name, person.emp_code, person.job_title, person.manager_name].join(" ").toLowerCase();
+      return (!search || haystack.includes(search))
+        && (!department || String(person.department_id) === department)
+        && (!team || String(person.team_id) === team);
+    });
+    $("#orgEmployeeRows").innerHTML = rows.map((person) => `<tr>
+      <td><strong>${esc(person.full_name)}</strong><div class="muted">${esc(person.emp_code)}</div></td>
+      <td>${esc(person.job_title || "—")}<div class="muted">System role: ${esc(person.role)}</div></td>
+      <td>${esc(person.department_name)}<div class="muted">${esc(person.team_name || "No team")}</div></td>
+      <td>${esc(person.manager_name || "Top level")}<div class="muted">${esc(person.manager_job_title || "")}</div></td>
+      <td><button class="btn small" type="button" data-view-path="${person.id}">View path</button></td>
+    </tr>`).join("") || '<tr><td colspan="5" class="empty">No employees match these filters.</td></tr>';
+  }
+
+  function treeNode(person, open = false) {
+    const children = person.children || [];
+    const card = `<button type="button" class="org-node-card" data-view-path="${person.id}">
+      <strong>${esc(person.full_name)}</strong><span>${esc(person.job_title || "—")}</span>
+      <small>${esc(person.department_name)}${person.team_name ? ` · ${esc(person.team_name)}` : ""}</small>
+    </button>`;
+    if (!children.length) return `<div class="org-leaf">${card}</div>`;
+    return `<details ${open ? "open" : ""}><summary>${card}<span class="org-child-count">${children.length}</span></summary>
+      <div class="org-children">${children.map((child) => treeNode(child)).join("")}</div></details>`;
+  }
+
+  function renderTree() {
+    $("#orgTree").innerHTML = state.tree.map((root) => treeNode(root, true)).join("")
+      || '<div class="empty">No hierarchy is available in your scope.</div>';
+  }
+
+  async function showPath(employeeId) {
+    try {
+      const result = await request(`org_path&employeeId=${encodeURIComponent(employeeId)}`);
+      const selected = result.path[0];
+      $("#orgPathCaption").textContent = selected ? `${selected.full_name} to the top` : "No reporting path";
+      $("#orgPath").innerHTML = result.path.map((person, index) => `<div class="org-path-node">
+        <span>${index === 0 ? "Employee" : `Level ${index}`}</span>
+        <strong>${esc(person.full_name)}</strong>
+        <small>${esc(person.job_title || "—")} · ${esc(person.department_name)}</small>
+      </div>`).join('<div class="org-path-arrow" aria-hidden="true">↑</div>');
+      if ($("#managerEmployee")) $("#managerEmployee").value = String(employeeId);
+      if ($("#membershipEmployee")) {
+        $("#membershipEmployee").value = String(employeeId);
+        const person = state.people.find((item) => Number(item.id) === Number(employeeId));
+        if (person) {
+          $("#membershipDepartment").value = String(person.department_id);
+          $("#membershipTeam").innerHTML = teamOptions(person.department_id);
+          $("#membershipTeam").value = person.team_id == null ? "" : String(person.team_id);
+        }
+      }
+    } catch (error) { message(error.message, true); }
+  }
+
+  function renderManagement() {
+    const permissions = new Set(state.user.permissions || []);
+    if (!permissions.has("org.structure.manage")) {
+      $("#orgManagePanel").hidden = true;
+      return;
+    }
+    ["#managerEmployee", "#managerAccount", "#membershipEmployee"].forEach((id) => { $(id).innerHTML = optionList(); });
+    ["#departmentHead", "#teamLead"].forEach((id) => { $(id).innerHTML = optionList(true); });
+    $("#membershipDepartment").innerHTML = departmentOptions();
+    $("#teamDepartment").innerHTML = departmentOptions();
+    $("#membershipTeam").innerHTML = teamOptions($("#membershipDepartment").value);
+    $("#departmentList").innerHTML = state.departments.map((item) =>
+      `<span><button class="btn small" type="button" data-edit-department="${item.id}">${esc(item.department_code)} · ${esc(item.department_name)}</button>
+       <button class="btn small danger" type="button" data-delete-department="${item.id}" aria-label="Delete ${esc(item.department_name)}">×</button></span>`,
+    ).join(" ");
+    $("#teamList").innerHTML = state.teams.map((item) =>
+      `<span><button class="btn small" type="button" data-edit-team="${item.id}">${esc(item.team_code)} · ${esc(item.team_name)}</button>
+       <button class="btn small danger" type="button" data-delete-team="${item.id}" aria-label="Delete ${esc(item.team_name)}">×</button></span>`,
+    ).join(" ");
+  }
+
+  function render() {
+    $("#orgDepartmentFilter").innerHTML = departmentOptions(true);
+    $("#orgTeamFilter").innerHTML = '<option value="">All teams</option>' + teamOptions(null, false);
+    renderDirectory();
+    renderTree();
+    renderManagement();
+  }
+
+  async function reload() {
+    const [tree, departments, teams] = await Promise.all([
+      request("org_tree"), request("org_departments"), request("org_teams"),
+    ]);
+    state.people = tree.people || [];
+    state.tree = tree.tree || [];
+    state.departments = departments.departments || [];
+    state.teams = teams.teams || [];
+    render();
+  }
+
+  async function submitJson(form, action) {
+    const values = Object.fromEntries(new FormData(form).entries());
+    form.querySelectorAll('input[type="checkbox"]').forEach((input) => { values[input.name] = input.checked; });
+    await request(action, { method: "POST", body: JSON.stringify(values) });
+    await reload();
+  }
+
+  function bindEvents() {
+    $("#orgSearch").addEventListener("input", renderDirectory);
+    $("#orgDepartmentFilter").addEventListener("change", () => {
+      $("#orgTeamFilter").innerHTML = '<option value="">All teams</option>' + teamOptions($("#orgDepartmentFilter").value, false);
+      renderDirectory();
+    });
+    $("#orgTeamFilter").addEventListener("change", renderDirectory);
+    document.addEventListener("click", async (event) => {
+      const pathButton = event.target.closest("[data-view-path]");
+      if (pathButton) showPath(pathButton.dataset.viewPath);
+      const departmentButton = event.target.closest("[data-edit-department]");
+      if (departmentButton) {
+        const item = state.departments.find((x) => Number(x.id) === Number(departmentButton.dataset.editDepartment));
+        const form = $("#departmentForm");
+        form.elements.id.value = item.id; form.elements.departmentCode.value = item.department_code;
+        form.elements.departmentName.value = item.department_name; form.elements.headEmployeeId.value = item.head_employee_id || "";
+        form.elements.isActive.checked = Number(item.is_active) === 1;
+      }
+      const teamButton = event.target.closest("[data-edit-team]");
+      if (teamButton) {
+        const item = state.teams.find((x) => Number(x.id) === Number(teamButton.dataset.editTeam));
+        const form = $("#teamForm");
+        form.elements.id.value = item.id; form.elements.departmentId.value = item.department_id;
+        form.elements.teamCode.value = item.team_code; form.elements.teamName.value = item.team_name;
+        form.elements.teamLeadEmployeeId.value = item.team_lead_employee_id || "";
+        form.elements.isActive.checked = Number(item.is_active) === 1;
+      }
+      const deleteTeam = event.target.closest("[data-delete-team]");
+      if (deleteTeam && window.confirm("Delete this unused team? This cannot be undone.")) {
+        try {
+          await request("org_team_delete", { method: "POST", body: JSON.stringify({ id: deleteTeam.dataset.deleteTeam }) });
+          await reload(); message("Team deleted.");
+        } catch (error) { message(error.message, true); }
+      }
+      const deleteDepartment = event.target.closest("[data-delete-department]");
+      if (deleteDepartment && window.confirm("Delete this unused department? This cannot be undone.")) {
+        try {
+          await request("org_department_delete", { method: "POST", body: JSON.stringify({ id: deleteDepartment.dataset.deleteDepartment }) });
+          await reload(); message("Department deleted.");
+        } catch (error) { message(error.message, true); }
+      }
+    });
+    $("#membershipDepartment").addEventListener("change", () => {
+      $("#membershipTeam").innerHTML = teamOptions($("#membershipDepartment").value);
+    });
+    $("#clearDepartment").addEventListener("click", () => { $("#departmentForm").reset(); $("#departmentForm").elements.id.value = ""; });
+    $("#clearTeam").addEventListener("click", () => { $("#teamForm").reset(); $("#teamForm").elements.id.value = ""; });
+    [
+      ["#managerForm", "org_change_manager", "Reporting relationship saved."],
+      ["#membershipForm", "org_assign_membership", "Membership saved."],
+      ["#departmentForm", "org_department_save", "Department saved."],
+      ["#teamForm", "org_team_save", "Team saved."],
+    ].forEach(([selector, action, success]) => $(selector).addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try { await submitJson(event.currentTarget, action); message(success); }
+      catch (error) { message(error.message, true); }
+    }));
+  }
+
+  async function init() {
+    try {
+      const me = await request("me");
+      state.user = me.user;
+      window.currentCsrfToken = me.csrfToken;
+      $("#backToDashboard").href = state.user.dashboard_path || "index.html";
+      $("#managerEffectiveDate").value = new Date().toISOString().slice(0, 10);
+      bindEvents();
+      await reload();
+      await showPath(state.user.id);
+    } catch (error) { message(error.message, true); }
+  }
+
+  window.addEventListener("DOMContentLoaded", init);
+})();

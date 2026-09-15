@@ -1,0 +1,76 @@
+name: Verify final product
+on:
+  push:
+    branches: [main, integration/final-handoff]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only-password
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -ptest-only-password"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      PPPM_DB_HOST: 127.0.0.1
+      PPPM_DB_NAME: pppm_handoff_test
+      PPPM_DB_USER: root
+      PPPM_DB_PASS: test-only-password
+      PPPM_TEST_URL: http://127.0.0.1:8080
+      MYSQL_PWD: test-only-password
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax checks
+        run: |
+          find . -name '*.php' -not -path './node_modules/*' -print0 | xargs -0 -n1 php -l
+          for file in Js/*.js tests/*.mjs; do node --check "$file"; done
+          git diff --check
+          php tests/work_progress.php
+      - name: Verify upgrade preserves existing users
+        run: |
+          git show 733a81b67a2ebc3a02585afff4daf733a820ab9f:schema.sql | sed 's/perf_tracker/pppm_upgrade_test/g' | mysql -h127.0.0.1 -uroot
+          before=$(mysql -h127.0.0.1 -uroot -N pppm_upgrade_test -e 'SELECT GROUP_CONCAT(CONCAT(id, ":", email) ORDER BY id) FROM users')
+          for file in migrations/*.sql; do mysql -h127.0.0.1 -uroot pppm_upgrade_test < "$file"; done
+          after=$(mysql -h127.0.0.1 -uroot -N pppm_upgrade_test -e 'SELECT GROUP_CONCAT(CONCAT(id, ":", email) ORDER BY id) FROM users')
+          test "$before" = "$after"
+          test "$(mysql -h127.0.0.1 -uroot -N pppm_upgrade_test -e 'SELECT COUNT(*) FROM work_steps')" -gt 0
+      - name: Fresh schema and safe demo reset
+        run: |
+          sed 's/perf_tracker/pppm_handoff_test/g' schema.sql | mysql -h127.0.0.1 -uroot
+          php scripts/demo.php seed
+          php tests/demo_reset.php
+      - name: Start isolated application
+        run: |
+          php -S 127.0.0.1:8080 -t . > /tmp/pppm-server.log 2>&1 &
+          for i in {1..20}; do curl -fsS http://127.0.0.1:8080/index.html >/dev/null && break; sleep 1; done
+      - name: Employee workspace regression tests
+        run: node tests/employee_workspaces.mjs
+      - name: Handoff workflows
+        run: |
+          php scripts/demo.php reset
+          node tests/handoff.mjs
+      - name: Browser demonstration checks
+        run: |
+          php scripts/demo.php reset
+          npm install --no-save --no-package-lock playwright@1.62.1
+          npx playwright install --with-deps chromium
+          node tests/browser.mjs
+      - name: Server log on failure
+        if: failure()
+        run: cat /tmp/pppm-server.log
