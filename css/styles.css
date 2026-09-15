@@ -595,6 +595,63 @@ button {
   place-items: center;
   font-weight: 700;
 }
+.profile-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 230px;
+  padding: 9px 10px 9px 13px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 5%);
+}
+.profile-badge-info {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+  justify-items: end;
+  line-height: 1.25;
+}
+.profile-name {
+  max-width: 190px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-job-title {
+  max-width: 190px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-access {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 5px;
+  font-size: 11px;
+}
+.profile-access-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.profile-access strong {
+  color: #2858ad;
+  font-size: 11px;
+}
+.profile-badge .avatar {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  font-size: 12px;
+}
 
 /* Shared manager buttons and page visibility */
 .btn {
@@ -1264,6 +1321,20 @@ button {
   .topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .top-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+  .profile-badge {
+    margin-left: auto;
+  }
+  .profile-badge-info {
+    justify-items: start;
+  }
+  .profile-access {
+    justify-content: flex-start;
   }
   .kpis {
     grid-template-columns: 1fr;
