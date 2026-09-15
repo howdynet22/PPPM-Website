@@ -6,12 +6,242 @@ require __DIR__ . "/config.php";
 start_app_session();
 $action = $_GET["action"] ?? "";
 
-require_once __DIR__ . "/work-steps.php";
-require_once __DIR__ . "/workspaces.php";
+// Work-step helpers shared by goals, PDP actions and PIP objectives.
+function normalize_work_steps(mixed $value): array
+{
+    if (!is_array($value)) {
+        json_response(
+            ["ok" => false, "error" => "Add at least one actionable step"],
+            422,
+        );
+    }
+    $steps = [];
+    foreach ($value as $step) {
+        $title = trim((string) (is_array($step) ? ($step["title"] ?? "") : $step));
+        if ($title === "" || strlen($title) > 500) {
+            json_response(
+                [
+                    "ok" => false,
+                    "error" =>
+                        "Each step is required and must be under 500 characters",
+                ],
+                422,
+            );
+        }
+        $steps[] = $title;
+    }
+    if (!$steps || count($steps) > 20) {
+        json_response(
+            [
+                "ok" => false,
+                "error" => "Add between 1 and 20 actionable steps",
+            ],
+            422,
+        );
+    }
+    return $steps;
+}
+
+function work_step_column(string $type): string
+{
+    return match ($type) {
+        "goal" => "goal_id",
+        "pdp_action" => "pdp_action_id",
+        "pip_objective" => "pip_objective_id",
+        default => json_response(
+            ["ok" => false, "error" => "Invalid work item type"],
+            422,
+        ),
+    };
+}
+
+function insert_work_steps(
+    PDO $pdo,
+    string $type,
+    int $workId,
+    array $steps,
+    int $creatorId,
+): void {
+    $column = work_step_column($type);
+    $stmt = $pdo->prepare(
+        "INSERT INTO work_steps($column,title,step_order,created_by) VALUES(?,?,?,?)",
+    );
+    foreach ($steps as $index => $title) {
+        $stmt->execute([$workId, $title, $index + 1, $creatorId]);
+    }
+}
+
+function work_steps_for(
+    PDO $pdo,
+    string $type,
+    int $workId,
+    int $viewerId,
+): array {
+    $column = work_step_column($type);
+    $stmt = $pdo->prepare(
+        "SELECT ws.id,ws.title,ws.step_order,ws.created_by,ws.is_completed," .
+            "ws.completed_by,ws.completed_at,creator.full_name creator_name " .
+            "FROM work_steps ws JOIN users creator ON creator.id=ws.created_by " .
+            "WHERE ws.$column=? ORDER BY ws.step_order,ws.id",
+    );
+    $stmt->execute([$workId]);
+    return array_map(
+        fn($step) => [
+            "id" => (int) $step["id"],
+            "title" => $step["title"],
+            "order" => (int) $step["step_order"],
+            "completed" => (bool) $step["is_completed"],
+            "creatorId" => (int) $step["created_by"],
+            "creator" => $step["creator_name"],
+            "canEdit" => (int) $step["created_by"] === $viewerId,
+            "completedAt" => $step["completed_at"],
+        ],
+        $stmt->fetchAll(),
+    );
+}
+
+function work_item_context(PDO $pdo, string $type, int $workId): ?array
+{
+    $sql = match ($type) {
+        "goal" =>
+            "SELECT g.id work_id,g.employee_id,g.manager_id,NULL hr_owner_id,g.status parent_status " .
+            "FROM goals g WHERE g.id=?",
+        "pdp_action" =>
+            "SELECT pa.id work_id,p.employee_id,p.manager_id,NULL hr_owner_id,pa.status parent_status " .
+            "FROM pdp_actions pa JOIN pdps p ON p.id=pa.pdp_id WHERE pa.id=?",
+        "pip_objective" =>
+            "SELECT po.id work_id,p.employee_id,p.manager_id,p.hr_owner_id,p.status plan_status," .
+            "po.status parent_status FROM pip_objectives po JOIN pips p ON p.id=po.pip_id WHERE po.id=?",
+        default => null,
+    };
+    if ($sql === null) {
+        return null;
+    }
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$workId]);
+    $context = $stmt->fetch() ?: null;
+    if ($context) {
+        $context["work_type"] = $type;
+    }
+    return $context;
+}
+
+function work_step_context(PDO $pdo, int $stepId): ?array
+{
+    $stmt = $pdo->prepare(
+        "SELECT ws.id,ws.created_by,ws.goal_id,ws.pdp_action_id,ws.pip_objective_id " .
+            "FROM work_steps ws WHERE ws.id=?",
+    );
+    $stmt->execute([$stepId]);
+    $step = $stmt->fetch();
+    if (!$step) {
+        return null;
+    }
+    $type = $step["goal_id"] !== null
+        ? "goal"
+        : ($step["pdp_action_id"] !== null
+            ? "pdp_action"
+            : "pip_objective");
+    $workId = (int) ($step[work_step_column($type)] ?? 0);
+    $context = work_item_context($pdo, $type, $workId);
+    if (!$context) {
+        return null;
+    }
+    return array_merge($context, [
+        "step_id" => (int) $step["id"],
+        "created_by" => (int) $step["created_by"],
+    ]);
+}
+
+function can_access_work_item(array $context, int $userId): bool
+{
+    return in_array(
+        $userId,
+        array_filter([
+            (int) ($context["employee_id"] ?? 0),
+            (int) ($context["manager_id"] ?? 0),
+            (int) ($context["hr_owner_id"] ?? 0),
+        ]),
+        true,
+    );
+}
+
+function assert_work_item_open(array $context): void
+{
+    if (
+        ($context["work_type"] ?? "") === "pip_objective" &&
+        in_array(
+            $context["plan_status"] ?? "",
+            ["successful", "unsuccessful", "closed"],
+            true,
+        )
+    ) {
+        json_response(
+            ["ok" => false, "error" => "A completed PIP cannot be changed"],
+            409,
+        );
+    }
+}
+
+function sync_work_item_status(PDO $pdo, array $context): void
+{
+    $type = (string) $context["work_type"];
+    $workId = (int) $context["work_id"];
+    $column = work_step_column($type);
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(*) total,COALESCE(SUM(is_completed),0) completed " .
+            "FROM work_steps WHERE $column=?",
+    );
+    $stmt->execute([$workId]);
+    $counts = $stmt->fetch();
+    $total = (int) ($counts["total"] ?? 0);
+    $completed = (int) ($counts["completed"] ?? 0);
+    $allCompleted = $total > 0 && $completed === $total;
+
+    if ($type === "goal") {
+        $status = $allCompleted
+            ? "completed"
+            : ($completed > 0 ? "in_progress" : "not_started");
+        if (($context["parent_status"] ?? "") === "missed" && !$allCompleted) {
+            $status = "missed";
+        }
+        $pdo->prepare("UPDATE goals SET status=? WHERE id=?")->execute([
+            $status,
+            $workId,
+        ]);
+        return;
+    }
+    if ($type === "pdp_action") {
+        $status = $allCompleted
+            ? "completed"
+            : ($completed > 0 ? "in_progress" : "not_started");
+        if (
+            in_array(
+                $context["parent_status"] ?? "",
+                ["overdue", "cancelled"],
+                true,
+            ) &&
+            !$allCompleted
+        ) {
+            $status = $context["parent_status"];
+        }
+        $completedAt = $status === "completed" ? "NOW()" : "NULL";
+        $pdo->prepare(
+            "UPDATE pdp_actions SET status=?,completed_at=$completedAt WHERE id=?",
+        )->execute([$status, $workId]);
+        return;
+    }
+    $status = $allCompleted
+        ? "met"
+        : ($completed > 0 ? "partially_met" : "not_met");
+    $pdo->prepare("UPDATE pip_objectives SET status=? WHERE id=?")->execute([
+        $status,
+        $workId,
+    ]);
+}
 
 try {
     if (str_starts_with((string) $action, "org_")) { organization_api((string) $action); }
-    if (in_array($action, ["workspace", "work_item", "set_step_status", "submit_personal_feedback", "feedback_form"], true)) { workspace_api($action); }
     switch ($action) {
         // Login functions.
         case "login":
@@ -100,7 +330,6 @@ try {
                 ->execute([$email, $ip]);
             unset($user["password_hash"]);
             $user["permissions"] = permissions_for_role($user["role"]);
-            $user["workspaces"] = available_workspaces($user);
             audit(
                 (int) $user["id"],
                 "LOGIN",
@@ -139,7 +368,6 @@ try {
             require_method("GET");
             $user = require_login();
             $user["permissions"] = permissions_for_role($user["role"]);
-            $user["workspaces"] = available_workspaces($user);
             json_response([
                 "ok" => true,
                 "user" => $user,
@@ -230,7 +458,6 @@ try {
             require_method("GET");
             $manager = require_permission("manager.dashboard");
             $manager["permissions"] = permissions_for_role($manager["role"]);
-            $manager["workspaces"] = available_workspaces($manager);
             $pdo = db();
             $mid = (int) $manager["id"];
             if (empty($_SESSION["manager_dashboard_audited"])) {
@@ -307,7 +534,6 @@ try {
                     "released" => "Released",
                     default => "Not started",
                 };
-                if (!$review) $e["review"] = "No review assigned";
                 $e["rating"] =
                     $review !== null && $review["rating"] !== null
                         ? (float) $review["rating"]
@@ -322,7 +548,7 @@ try {
                         "COALESCE(SUM(ws.is_completed),0) completed_steps FROM pdp_actions pa " .
                         "JOIN pdps p ON p.id=pa.pdp_id LEFT JOIN work_steps ws ON " .
                         "ws.pdp_action_id=pa.id WHERE p.employee_id=? AND p.manager_id=? " .
-                        "AND pa.status <> 'cancelled' AND p.status <> 'cancelled'",
+                        "AND pa.status <> 'cancelled'",
                 );
                 $stmt->execute([$eid, $mid]);
                 $pdp = $stmt->fetch();
@@ -346,7 +572,7 @@ try {
                     ];
                 }
                 $e["skills"] = $skills;
-                $reviewNeedsAction = $review !== null && !in_array(
+                $reviewNeedsAction = !in_array(
                     $e["reviewStatusCode"],
                     ["manager_submitted", "released"],
                     true,
@@ -406,7 +632,6 @@ try {
                     (int) $goal["id"],
                     $mid,
                 );
-                $goal["progress"]=work_progress($goal["steps"],$goal["due"]);
             }
             unset($goal);
 
@@ -414,9 +639,9 @@ try {
                 "SELECT pa.id, p.employee_id, u.full_name employee, pa.title, pa.description, " .
                     "pa.due_date due, pa.status, p.id pdp_id FROM pdp_actions " .
                     "pa JOIN pdps p ON p.id=pa.pdp_id JOIN users u ON u.id=p.employee_id WHERE " .
-                    "p.manager_id=? AND p.employee_id<>? AND p.status<>'cancelled' AND pa.status <> 'cancelled' ORDER BY pa.due_date",
+                    "p.manager_id=? AND pa.status <> 'cancelled' ORDER BY pa.due_date",
             );
-            $stmt->execute([$mid,$mid]);
+            $stmt->execute([$mid]);
             $pdps = array_map(
                 fn($r) => [
                     "id" => (int) $r["id"],
@@ -437,7 +662,6 @@ try {
                     (int) $pdpAction["id"],
                     $mid,
                 );
-                $pdpAction["progress"]=work_progress($pdpAction["steps"],$pdpAction["due"]);
             }
             unset($pdpAction);
 
@@ -560,12 +784,102 @@ try {
             }
 
             $s = $pdo->query(
-                "SELECT DISTINCT u.id,u.full_name name FROM users u JOIN role_permissions rp ON rp.role_code=u.role JOIN permissions p ON p.id=rp.permission_id WHERE p.permission_code='hr.pips' AND p.is_active=1 AND u.is_active=1 ORDER BY u.full_name",
+                "SELECT id, full_name name FROM users WHERE role='hr' AND is_active=1 ORDER BY full_name",
             );
             $hrOwners = array_map(
                 fn($r) => ["id" => (int) $r["id"], "name" => $r["name"]],
                 $s->fetchAll(),
             );
+
+            // Manager's own personal dashboard: latest review, own goals and PDP actions.
+            $s = $pdo->prepare(
+                "SELECT rp.id participant_id,rc.name " .
+                    "cycle,rc.min_peers,rp.status,rp.final_rating,rp.manager_summary FROM " .
+                    "review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id WHERE " .
+                    "rp.employee_id=? ORDER BY rp.id DESC LIMIT 1",
+            );
+            $s->execute([$mid]);
+            $ownReview = $s->fetch() ?: null;
+            $ownReviewReleased =
+                $ownReview !== null && $ownReview["status"] === "released";
+            if ($ownReview && !$ownReviewReleased) {
+                $ownReview["final_rating"] = null;
+                $ownReview["manager_summary"] = null;
+            }
+            $s = $pdo->prepare(
+                "SELECT id,title,description target,due_date due,status FROM " .
+                    "goals WHERE employee_id=? ORDER BY due_date",
+            );
+            $s->execute([$mid]);
+            $ownGoals = array_map(
+                fn($r) => [
+                    "id" => (int) $r["id"],
+                    "title" => $r["title"],
+                    "target" => $r["target"],
+                    "due" => $r["due"],
+                    "status" => ucwords(str_replace("_", " ", $r["status"])),
+                ],
+                $s->fetchAll(),
+            );
+            foreach ($ownGoals as &$ownGoal) {
+                $ownGoal["steps"] = work_steps_for(
+                    $pdo,
+                    "goal",
+                    (int) $ownGoal["id"],
+                    $mid,
+                );
+            }
+            unset($ownGoal);
+            $s = $pdo->prepare(
+                "SELECT pa.id,pa.title,pa.due_date due,pa.status FROM " .
+                    "pdp_actions pa JOIN pdps p ON p.id=pa.pdp_id WHERE p.employee_id=? ORDER BY " .
+                    "pa.due_date",
+            );
+            $s->execute([$mid]);
+            $ownPdp = array_map(
+                fn($r) => [
+                    "id" => (int) $r["id"],
+                    "title" => $r["title"],
+                    "due" => $r["due"],
+                    "status" => ucwords(str_replace("_", " ", $r["status"])),
+                ],
+                $s->fetchAll(),
+            );
+            foreach ($ownPdp as &$ownPdpAction) {
+                $ownPdpAction["steps"] = work_steps_for(
+                    $pdo,
+                    "pdp_action",
+                    (int) $ownPdpAction["id"],
+                    $mid,
+                );
+            }
+            unset($ownPdpAction);
+            $ownFeedback = [];
+            $ownFeedbackMeta = [
+                "available" => false,
+                "released" => $ownReviewReleased,
+                "responses" => 0,
+                "required" => (int) ($ownReview["min_peers"] ?? 3),
+            ];
+            if ($ownReviewReleased) {
+                $s = $pdo->prepare(
+                    "SELECT COUNT(*) FROM feedback_requests WHERE participant_id=? AND type='peer' AND " .
+                        "status='submitted'",
+                );
+                $s->execute([(int) $ownReview["participant_id"]]);
+                $ownFeedbackMeta["responses"] = (int) $s->fetchColumn();
+                $ownFeedbackMeta["available"] =
+                    $ownFeedbackMeta["responses"] >=
+                    $ownFeedbackMeta["required"];
+                if ($ownFeedbackMeta["available"]) {
+                    $s = $pdo->prepare(
+                        "SELECT competency,avg_score,responses FROM v_360_summary WHERE participant_id=? " .
+                            "AND type='peer' ORDER BY competency",
+                    );
+                    $s->execute([(int) $ownReview["participant_id"]]);
+                    $ownFeedback = $s->fetchAll();
+                }
+            }
 
             $notifications = [];
             foreach ($employees as $e) {
@@ -628,22 +942,7 @@ try {
                 );
             }
             unset($notification);
-            $notifications=array_values(array_filter($notifications,fn($n)=>has_permission($mid,str_starts_with($n["id"],"pdp-")?"manager.goals":"manager.reviews")));
 
-            foreach ($employees as &$row) {
-                if (!has_permission($mid, "manager.reviews")) {
-                    foreach (["participantId", "cycleId", "rating", "managerSummary"] as $key) $row[$key] = null;
-                    $row["review"] = "Unavailable";
-                    $row["reviewStatusCode"] = "unavailable";
-                }
-                if (!has_permission($mid, "manager.goals")) {
-                    foreach (["goals", "pdpActionCount", "pdpCompletedSteps", "pdpTotalSteps"] as $key) $row[$key] = 0;
-                }
-            }
-            unset($row);
-            if (!has_permission($mid, "manager.reviews")) { $peerNominations=[]; $feedback=[]; $managerRatings=[]; }
-            if (!has_permission($mid, "manager.goals")) { $goals=[]; $pdps=[]; }
-            if (!has_permission($mid, "manager.pips")) { $pips=[]; $hrOwners=[]; }
             json_response([
                 "ok" => true,
                 "manager" => $manager,
@@ -657,6 +956,13 @@ try {
                 "competencies" => $competencies,
                 "hrOwners" => $hrOwners,
                 "notifications" => $notifications,
+                "personal" => [
+                    "review" => $ownReview,
+                    "goals" => $ownGoals,
+                    "pdp" => $ownPdp,
+                    "feedback" => $ownFeedback,
+                    "feedbackMeta" => $ownFeedbackMeta,
+                ],
                 "csrfToken" => csrf_token(),
             ]);
 
@@ -863,7 +1169,6 @@ try {
             $manager = require_login();
             $in = input();
             $eid = (int) ($in["employeeId"] ?? 0);
-            if ($eid === (int) $manager["id"] && !has_permission($eid,"employee.dashboard")) { json_response(["ok"=>false,"error"=>"Personal development is unavailable"],403); }
             if (
                 $eid !== (int) $manager["id"] &&
                 (!has_permission((int) $manager["id"], "manager.goals") ||
@@ -939,9 +1244,6 @@ try {
             $manager = require_login();
             $in = input();
             $id = (int) ($in["id"] ?? 0);
-            $context=work_item_context(db(),"goal",$id);
-            if (!$context || !can_access_work_item($context,(int)$manager['id'])) json_response(['ok'=>false,'error'=>'Work item not found'],404);
-            assert_work_item_open($context);
             $status = strtolower(
                 str_replace(
                     " ",
@@ -1002,7 +1304,6 @@ try {
             $pdo->prepare(
                 "UPDATE goals SET title=?,status=? WHERE id=? AND manager_id=?",
             )->execute([$title, $status, $id, $manager["id"]]);
-            sync_work_item_status($pdo, work_item_context($pdo, "goal", $id));
             audit(
                 (int) $manager["id"],
                 "UPDATE_GOAL",
@@ -1019,7 +1320,6 @@ try {
             $manager = require_login();
             $in = input();
             $eid = (int) ($in["employeeId"] ?? 0);
-            if ($eid === (int) $manager["id"] && !has_permission($eid,"employee.dashboard")) { json_response(["ok"=>false,"error"=>"Personal development is unavailable"],403); }
             if (
                 $eid !== (int) $manager["id"] &&
                 (!has_permission((int) $manager["id"], "manager.goals") ||
@@ -1109,9 +1409,6 @@ try {
             $manager = require_login();
             $in = input();
             $id = (int) ($in["id"] ?? 0);
-            $context=work_item_context(db(),"pdp_action",$id);
-            if (!$context || !can_access_work_item($context,(int)$manager['id'])) json_response(['ok'=>false,'error'=>'Work item not found'],404);
-            assert_work_item_open($context);
             $status = strtolower(
                 str_replace(
                     " ",
@@ -1185,7 +1482,6 @@ try {
                     "INSERT INTO action_updates(action_id,author_id,note,new_status) VALUES(?,?,?,?)",
                 )->execute([$id, $manager["id"], $note, $status]);
             }
-            sync_work_item_status($pdo, work_item_context($pdo, "pdp_action", $id));
             audit(
                 (int) $manager["id"],
                 "UPDATE_PDP_ACTION",
@@ -1213,7 +1509,7 @@ try {
             }
             $hr = (int) ($in["hrOwnerId"] ?? 0);
             $stmt = db()->prepare(
-                "SELECT DISTINCT u.id FROM users u JOIN role_permissions rp ON rp.role_code=u.role JOIN permissions p ON p.id=rp.permission_id WHERE u.id=? AND u.is_active=1 AND p.permission_code='hr.pips' AND p.is_active=1",
+                "SELECT id FROM users WHERE id=? AND role='hr' AND is_active=1",
             );
             $stmt->execute([$hr]);
             if (!$stmt->fetch()) {
@@ -1571,7 +1867,60 @@ try {
         // Mark one actionable step complete or incomplete. Both the assignee
         // and the assigning person can record completion.
         case "toggle_work_step":
-            workspace_api("set_step_status");
+            require_method("POST");
+            require_csrf();
+            $user = require_login();
+            $in = input();
+            $stepId = (int) ($in["id"] ?? 0);
+            $completed = filter_var(
+                $in["completed"] ?? false,
+                FILTER_VALIDATE_BOOLEAN,
+            );
+            $pdo = db();
+            $context = work_step_context($pdo, $stepId);
+            if (!$context) {
+                json_response(["ok" => false, "error" => "Step not found"], 404);
+            }
+            $userId = (int) $user["id"];
+            if (
+                !in_array(
+                    $userId,
+                    [
+                        (int) $context["employee_id"],
+                        (int) $context["manager_id"],
+                    ],
+                    true,
+                )
+            ) {
+                json_response(
+                    [
+                        "ok" => false,
+                        "error" =>
+                            "Only the assignee or assigning person can update this step",
+                    ],
+                    403,
+                );
+            }
+            assert_work_item_open($context);
+            $pdo->beginTransaction();
+            $pdo->prepare(
+                "UPDATE work_steps SET is_completed=?,completed_by=?,completed_at=? WHERE id=?",
+            )->execute([
+                $completed ? 1 : 0,
+                $completed ? $userId : null,
+                $completed ? date("Y-m-d H:i:s") : null,
+                $stepId,
+            ]);
+            sync_work_item_status($pdo, $context);
+            audit(
+                $userId,
+                $completed ? "COMPLETE_WORK_STEP" : "REOPEN_WORK_STEP",
+                "work_step",
+                $stepId,
+                $completed ? "Completed actionable step" : "Reopened actionable step",
+            );
+            $pdo->commit();
+            json_response(["ok" => true]);
 
         // Add a step only when the signed-in user authored the task's steps.
         case "add_work_step":
@@ -1608,9 +1957,6 @@ try {
                 );
             }
             assert_work_item_open($context);
-            $pdo->exec("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
-            $pdo->beginTransaction();
-            $context=lock_work_item($pdo,$context);
             $column = work_step_column($type);
             $stmt = $pdo->prepare(
                 "SELECT created_by FROM work_steps WHERE $column=? ORDER BY step_order,id LIMIT 1",
@@ -1667,7 +2013,6 @@ try {
                 $newId,
                 "Added actionable step",
             );
-            $pdo->commit();
             json_response(["ok" => true, "id" => $newId]);
 
         // Rewrite a step only when the signed-in user originally authored it.
@@ -1694,7 +2039,7 @@ try {
                 json_response(["ok" => false, "error" => "Step not found"], 404);
             }
             $userId = (int) $user["id"];
-            if ((int) $context["created_by"] !== $userId || !can_access_work_item($context, $userId)) {
+            if ((int) $context["created_by"] !== $userId) {
                 json_response(
                     [
                         "ok" => false,
@@ -1705,7 +2050,7 @@ try {
                 );
             }
             assert_work_item_open($context);
-            $pdo->prepare("UPDATE work_steps SET title=?,version=version+1 WHERE id=?")->execute([
+            $pdo->prepare("UPDATE work_steps SET title=? WHERE id=?")->execute([
                 $title,
                 $stepId,
             ]);
@@ -1731,7 +2076,7 @@ try {
                 json_response(["ok" => false, "error" => "Step not found"], 404);
             }
             $userId = (int) $user["id"];
-            if ((int) $context["created_by"] !== $userId || !can_access_work_item($context, $userId)) {
+            if ((int) $context["created_by"] !== $userId) {
                 json_response(
                     [
                         "ok" => false,
@@ -1742,9 +2087,6 @@ try {
                 );
             }
             assert_work_item_open($context);
-            $pdo->exec("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
-            $pdo->beginTransaction();
-            $context=lock_work_item($pdo,$context);
             $column = work_step_column((string) $context["work_type"]);
             $stmt = $pdo->prepare(
                 "SELECT id FROM work_steps WHERE $column=? ORDER BY step_order,id",
@@ -1760,6 +2102,7 @@ try {
                     409,
                 );
             }
+            $pdo->beginTransaction();
             $pdo->prepare("DELETE FROM work_steps WHERE id=?")->execute([$stepId]);
             $stepIds = array_values(array_filter($stepIds, fn($id) => $id !== $stepId));
             $reorder = $pdo->prepare(

@@ -1,119 +1,109 @@
-# PPPM — manager / employee update
+# PPPM Website
 
-Based on `actionable-goal-steps` (8936ccc). This update implements the employee
-workspace and updates the manager experience. HR and system administrator
-screens are maintained separately by a teammate; those HTML screens are unchanged.
+## Organization hierarchy
 
-## Development and workspaces
+The tracker now uses normalized `departments`, `teams` and effective-dated
+`reporting_relationships`. A user's `role` grants application permissions;
+their `job_title` describes their position; and the active primary reporting
+relationship determines their place in the organization. These three concepts
+are intentionally independent.
 
-Managers and HR staff keep their existing account and can choose **Employee**
-from the workspace selector to see their own goals, PDPs, PIPs and feedback.
-The selected workspace is remembered per user on this browser. Available
-workspaces come from database permissions, not job titles or the selected UI.
-The CEO demo account uses the existing leadership destination and has no
-employee workspace.
+The organization page supports searchable employees, department/team filters,
+expandable branches, reporting paths and HR/administrator assignment forms.
+Managers see directory information for direct reports and all descendants.
+Performance records remain protected by their own `manager_id` owner, so an
+ancestor does not automatically gain review, peer-feedback, goal, PDP or PIP
+ownership.
 
-Open any development goal to update its steps to **Not started**, **In progress**,
-**Blocked** or **Completed**. Notes are optional. Mark complete and Reopen provide
-quick actions. Reopening clears the completion timestamp; changing a note on an
-already completed step preserves it. Step authors retain definition editing;
-assignees can update progress but cannot rewrite assigned steps.
+## Actionable work steps
 
-Progress is completed steps / total steps, weighted equally across a plan's
-non-cancelled actions. A goal without steps has zero progress and cannot complete.
-A plan with an empty action remains incomplete even if its defined steps are all
-done. Blocked and overdue are separate health indicators. Completing every action
-completes the plan; reopening restores its draft/agreed state. Closed PIPs and
-cancelled development actions are read-only.
+Goals, PDP actions and PIP objectives are measured with ordered, checkable
+steps rather than percentages. Creation forms require at least one concrete
+step, dashboards show completed steps out of total steps, and parent statuses
+are recalculated when steps are checked or reopened.
 
-The static review checklist has been removed. Assigned self/peer requests open
-real feedback forms; submitted forms are read-only. Employee results stay hidden
-until release, and anonymous aggregates still require the cycle's minimum peers.
+The person who creates a task owns its step definitions. A self-created task
+can therefore be edited by its assignee. When another person assigns the task,
+the assignee can check steps off but cannot add, rename or remove them; those
+changes remain with the person who set the steps. The API enforces this rule in
+addition to hiding edit controls in the dashboard.
 
-Views reload after saves, on window focus, when a tab becomes visible, and every
-15 seconds while visible. Step dialogs also refresh when there is no unsaved draft.
-A version check rejects stale step saves. Failed saves retain the draft and show
-an error; they do not show an unsaved completion as persisted.
+## Code cleanup update
 
-## Access boundaries
+- Moved all the page styling into one `css/styles.css` file.
+- Removed the CSS that was written inside the HTML pages and JavaScript.
+- Formatted the HTML, CSS, JavaScript, PHP and SQL so it is easier to read.
+- Split long code and generated HTML into proper lines instead of one huge line.
+- Added simple comments explaining what each main code section does.
+- Renamed unclear temporary variables where it made the code easier to follow.
+- Kept the website features and database behaviour the same.
 
-- Employees access their own personal records.
-- Managers create records for current direct reports and retain access to records
-  explicitly assigned to them. Descendant directory access does not grant access
-  to descendants' private PDP, review or PIP records.
-- HR PIP step access requires both `hr.pips` and explicit `hr_owner_id` ownership.
-- Existing `hr` is the senior HR permission set; `hr_partner` has HR case and
-  directory access, while `hr_coordinator` has a personal workspace and basic HR
-  entry/reporting-path access. These are reusable permissions, not job titles.
-- The shared `me` response includes `workspaces: [{key,label,path}]` for the
-  teammate's HR/admin screens. Their screen implementations are outside this PR.
+## Manager dashboard update
 
-## Fresh demo setup
+I focused on completing the manager side of the website for this update.
 
-Requires PHP 8.1+ and MySQL/MariaDB (XAMPP works).
+- Connected all the manager dashboard buttons, searches and filters.
+- Replaced the hard-coded manager profile details with data from the database.
+- Fixed the team goal, PDP, review and report calculations.
+- Fixed empty ratings so they show properly instead of showing `0.0/5`.
+- Fixed submitted reviews so the saved manager summary loads again when editing.
+- Added proper review-cycle checks so reviews can only be submitted at the correct time.
+- Added better PIP validation, including checking the dates and required fields.
+- Made notification read/unread changes save properly.
+- Added CSRF protection to requests that change data.
+- Added session expiry and better session security.
+- Added login throttling to reduce repeated login attempts.
+- Improved password requirements and backend error handling.
+- Improved the security of CSV exports and anonymous feedback results.
+- Fixed the login form HTML, labels and mobile layout.
+- Updated the database schema and setup instructions.
+- Added Apache security rules using `.htaccess`.
+- Left the Employee, HR and Admin dashboards as placeholders for now.
 
-1. Use a **new empty database** for the focused demo. `schema.sql` selects
-   `perf_tracker` by default; to use another name, replace its database name
-   before import and set `PPPM_DB_NAME` to the same name in PHP's environment.
-2. Import `schema.sql`. It creates schema and permissions, without dropping
-   an existing database or embedding people in the schema.
-3. From the project directory run `php scripts/demo.php seed`.
-4. Serve the project through Apache or `php -S 127.0.0.1:8080 -t .`.
-5. Open `index.html` and sign in with an account from `users.txt`.
+## Running the project
 
-The fictional fixture has 1 CEO, 3 managers at successive reporting levels,
-3 HR staff with different permission sets, and 5 other employees. All 11
-non-CEO accounts have a small personal plan. There is one illustrative PIP,
-two review cycles, a few requests and one released anonymous feedback example.
-Dates are relative to the time the demo is seeded.
+1. Put the project folder inside `C:\\xampp\\htdocs\\pppm`.
+2. Start Apache and MySQL in XAMPP.
+3. Import `schema.sql` using phpMyAdmin.
+4. Open `http://localhost/pppm/index.html`.
+5. Log in with any account in `users.txt`; all demo passwords are `password123`.
 
-Good demo starting accounts (password `password123`):
+Re-importing `schema.sql` will reset the demo database and remove existing test changes.
 
-| Account | Demonstrates |
-| --- | --- |
-| casey@demo.pppm.test | Team management and switching to a personal PDP |
-| alex@demo.pppm.test | Four step states, overdue development, a completed goal, self review |
-| morgan@demo.pppm.test | Senior management plus released personal 360 feedback |
-| taylor@demo.pppm.test | Personal employee view and assigned HR PIP access |
-| sam@demo.pppm.test | Junior HR access without other employees' PIP data |
+After importing, `tests/organization_checks.sql` provides read-only checks for
+active-manager uniqueness, foreign-key integrity, the seeded reporting path,
+historical ownership and job-title/permission separation.
+`tests/actionable_steps_checks.sql` checks step ownership, parent links and
+completed-status consistency.
 
-## Recreate demo data safely
+### Upgrading an existing database
 
-`php scripts/demo.php seed` is idempotent: it leaves an existing fixture alone.
-`php scripts/demo.php reset` recreates only registered fixture content and
-personal records created for those demo accounts. It preserves unrelated users
-and records. Foreign-key dependencies from outside the fixture cause a rollback
-rather than removal of unrelated content. Sign in again after a reset because
-fixture account IDs are recreated.
+Back up the database, then import `migrations/001_organization.sql` once,
+followed by `migrations/002_actionable_work_steps.sql`. The first migration
+normalizes the organization structure. The second converts existing goal and
+PDP percentages, plus PIP objective statuses, into seeded actionable steps and
+then removes the obsolete percentage columns. Existing manager IDs are retained
+as record ownership/history and as the authors of migrated step definitions.
 
-The old 22-person dataset is unregistered. The seeder deliberately refuses to
-adopt or delete those users automatically. For this smaller demo, initialize a
-separate database and point the demo app at it. No current machine database is
-reset by this code update.
+Because the legacy schema stored no relationship dates, the employee's join
+date is used as the earliest available effective date and that inference is
+recorded in the relationship change note.
 
-## Upgrade the latest branch's existing database
+Unused departments and teams can be deleted from the organization page. The API
+rejects deletion while employees or teams still reference the record. Active
+records can also be retained and disabled with `is_active`.
 
-Back up the database and apply `migrations/003_employee_workspaces.sql` once
-to the selected database. Databases older than `actionable-goal-steps` must
-first apply migrations 001 and 002 in order. Migration 003 preserves users and
-records, adds step state/note/version fields, backfills completion states and
-adds workspace permissions. Use migrations for upgrades, not `schema.sql`.
+Hierarchy traversal uses cycle-safe, level-by-level queries and does not depend on
+recursive CTE support.
 
-Environment settings remain `PPPM_DB_HOST`, `PPPM_DB_NAME`, `PPPM_DB_USER`,
-`PPPM_DB_PASS`, and `PPPM_APP_DEBUG` (development only).
+## Demo data update
 
-## Verification
-
-Run checks against an isolated, freshly seeded test database:
-
-- `PPPM_TEST_URL=http://127.0.0.1:8080 node tests/employee_workspaces.mjs`
-  (in PowerShell set `$env:PPPM_TEST_URL` first). Tests change fictional records.
-- `php tests/demo_reset.php` with `PPPM_DB_NAME` containing `test`.
-  Tests preservation of an unrelated user and goal, fixture count and idempotency.
-- Import `tests/organization_checks.sql` and `tests/actionable_steps_checks.sql`
-  into the database being checked; integrity queries should return no rows.
-- Lint PHP files with `php -l` and JavaScript files with `node --check`.
-
-Verified locally with PHP 8.2 / MariaDB: fresh installation, migration of all
-22 existing users and 123 steps, permission/API scenarios, safe reset, and browser
-flows for workspace switching, step saves, reload persistence and mobile layout.
+- Added two managers with separate fictional teams for role-boundary testing.
+- Added eleven fictional employees with different roles and skill levels.
+- Added a completed review period and a current review period.
+- Added mixed review stages, ratings and manager summaries.
+- Added more peer nominations and anonymous 360 feedback.
+- Added completed, active, missed and not-started goals.
+- Added PDP actions with ordered, checkable steps and update notes.
+- Added active, extended and successful PIP examples.
+- Added sample notifications, login activity and audit records.

@@ -1,6 +1,6 @@
 -- Read-only checks for the actionable work-step model.
 
--- Run in the selected database.
+USE perf_tracker;
 
 -- Expected: zero. Every step must belong to exactly one supported work item.
 SELECT COUNT(*) AS invalid_parent_count
@@ -68,8 +68,3 @@ LEFT JOIN pdps pdp ON pdp.id = pa.pdp_id
 LEFT JOIN pip_objectives po ON po.id = ws.pip_objective_id
 LEFT JOIN pips pip ON pip.id = po.pip_id
 ORDER BY ws.id;
-
--- Step state, legacy completion flag and timestamp must agree.
-SELECT id FROM work_steps WHERE (status='completed')<>is_completed
-OR (status='completed' AND (completed_at IS NULL OR completed_by IS NULL))
-OR (status<>'completed' AND (completed_at IS NOT NULL OR completed_by IS NOT NULL));

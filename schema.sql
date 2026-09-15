@@ -4,10 +4,10 @@
 --
 --  Run this in phpMyAdmin:  Import > choose file > Go
 -- ============================================================
--- Fresh installs only. This script never drops an existing database.
+DROP DATABASE IF EXISTS perf_tracker;
 
 
-CREATE DATABASE IF NOT EXISTS perf_tracker CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE perf_tracker CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 
 USE perf_tracker;
@@ -633,7 +633,1587 @@ WHERE
 
 
 -- ============================================================
--- Permissions and employee-workspace migration for fresh installs.
+-- SECTION 8: SAMPLE DATA
+--  All passwords below are the plain text 'password123' hashed
+--  with PHP password_hash(). Use it to log in while testing.
+-- ============================================================
+INSERT INTO departments(id,department_code,department_name) VALUES (1,'EXEC','Executive'),(2,'HR','Human Resources'),(3,'ENG','IT/Engineering'),(4,'FIN','Finance');
+INSERT INTO teams(id,department_id,team_code,team_name) VALUES (1,3,'PLATFORM','Platform'),(2,3,'PRODUCT','Product'),(3,4,'ACCOUNTS','Accounts'),(4,2,'PEOPLE','People Operations');
+INSERT INTO users(emp_code,full_name,email,password_hash,role,job_title,department_id,team_id,date_joined) VALUES
+('E001','Sanduni Perera','hr@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','hr','HR Manager',2,4,'2021-01-10'),
+('E002','Dilan Fernando','admin@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','admin','System Administrator',1,NULL,'2019-03-01'),
+('E003','Kavindu Silva','kavindu@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Engineering Manager',3,1,'2020-06-15'),
+('E004','Nimal Jayasuriya','nimal@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Junior Developer',3,1,'2024-02-01'),
+('E005','Amaya Rathnayake','amaya@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Software Engineer',3,1,'2022-08-20'),
+('E006','Tharindu Bandara','tharindu@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','QA Engineer',3,1,'2023-05-05'),
+('E007','Ishara Gunasekara','ishara@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Software Engineer',3,1,'2023-11-11'),
+('E008','Sahan de Alwis','sahan@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Team Lead',3,1,'2021-04-19'),
+('E009','Malini Wijesinghe','malini@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','UI/UX Designer',3,1,'2022-10-03'),
+('E010','Farah Iqbal','farah@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','DevOps Engineer',3,1,'2023-01-16'),
+('E011','Janith Perera','janith@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Data Analyst',3,1,'2024-06-10'),
+('E012','Priyanka Senanayake','priyanka@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Product Manager',3,2,'2021-09-13'),
+('E013','Akeel Nazeer','akeel@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Product Analyst',3,2,'2023-03-06'),
+('E014','Hana Fairooz','hana@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Business Analyst',3,2,'2022-11-21'),
+('E015','Rishan Mohamed','rishan@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','UX Researcher',3,2,'2024-01-08'),
+('E016','Leena Raman','ceo@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','leadership','Chief Executive',1,NULL,'2020-01-01'),
+('E017','Ravi Sen','engineering-head@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Engineering Director',3,NULL,'2020-01-01'),
+('E018','Maya Fernando','finance-head@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Finance Director',4,NULL,'2020-01-01'),
+('E019','Imaan Ali','hr-head@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','hr','HR Director',2,NULL,'2020-01-01'),
+('E020','Noah Peris','finance-manager@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','manager','Finance Manager',4,3,'2020-01-01'),
+('E021','Tara Dias','accountant@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','Accountant',4,3,'2020-01-01'),
+('E022','Anika Sen','hr-executive@demo.lk','$2y$12$KICJrailDGtQxqre7rNAYu0l2L6E02fi9fiZPAWJusJEmBHt0uGou','employee','HR Executive',2,4,'2020-01-01');
+INSERT INTO reporting_relationships(employee_id,reports_to_employee_id,effective_from,created_by,change_reason) VALUES
+(1,19,'2020-01-01',2,'Fictional demo hierarchy'),
+(2,16,'2020-01-01',2,'Fictional demo hierarchy'),
+(3,17,'2020-01-01',2,'Fictional demo hierarchy'),
+(4,8,'2026-07-01',2,'Fictional demo hierarchy'),
+(5,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(6,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(7,8,'2020-01-01',2,'Fictional demo hierarchy'),
+(8,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(9,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(10,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(11,3,'2020-01-01',2,'Fictional demo hierarchy'),
+(12,17,'2020-01-01',2,'Fictional demo hierarchy'),
+(13,12,'2020-01-01',2,'Fictional demo hierarchy'),
+(14,12,'2020-01-01',2,'Fictional demo hierarchy'),
+(15,12,'2020-01-01',2,'Fictional demo hierarchy'),
+(17,16,'2020-01-01',2,'Fictional demo hierarchy'),
+(18,16,'2020-01-01',2,'Fictional demo hierarchy'),
+(19,16,'2020-01-01',2,'Fictional demo hierarchy'),
+(20,18,'2020-01-01',2,'Fictional demo hierarchy'),
+(21,20,'2020-01-01',2,'Fictional demo hierarchy'),
+(22,1,'2020-01-01',2,'Fictional demo hierarchy');
+INSERT INTO reporting_relationships(employee_id,reports_to_employee_id,relationship_type,effective_from,effective_to,created_by,change_reason) VALUES (4,3,'primary','2020-01-01','2026-07-01',2,'Moved to Platform team lead'),(4,12,'dotted_line','2026-07-01',NULL,2,'Cross-team collaboration');
+UPDATE departments SET head_employee_id=CASE id WHEN 1 THEN 16 WHEN 2 THEN 19 WHEN 3 THEN 17 WHEN 4 THEN 18 END;
+UPDATE teams SET team_lead_employee_id=CASE id WHEN 1 THEN 8 WHEN 2 THEN 12 WHEN 3 THEN 20 WHEN 4 THEN 1 END;
+
+INSERT INTO
+  competencies (name, description)
+VALUES
+  (
+    'Communication',
+    'Clarity of written and verbal communication'
+  ),
+  (
+    'Technical Skill',
+    'Depth and correctness of technical work'
+  ),
+  (
+    'Teamwork',
+    'Collaboration and support of colleagues'
+  ),
+  (
+    'Ownership',
+    'Takes responsibility and follows through'
+  ),
+  ('Reliability', 'Meets deadlines and commitments');
+
+
+INSERT INTO
+  skills (name, category)
+VALUES
+  ('PHP', 'Technical'),
+  ('MySQL', 'Technical'),
+  ('JavaScript', 'Technical'),
+  ('Git', 'Technical'),
+  ('Unit Testing', 'Technical'),
+  ('Presentation', 'Soft'),
+  ('Time Management', 'Soft'),
+  ('API Design', 'Technical'),
+  ('Test Automation', 'Technical'),
+  ('Docker', 'Technical'),
+  ('CI/CD', 'Technical'),
+  ('UX Research', 'Design'),
+  ('Figma', 'Design'),
+  ('Data Analysis', 'Data'),
+  ('SQL', 'Data'),
+  ('Cloud Monitoring', 'Technical');
+
+
+INSERT INTO
+  role_skill_requirements (job_title, skill_id, required_level)
+VALUES
+  ('Junior Developer', 1, 3),
+  ('Junior Developer', 2, 3),
+  ('Junior Developer', 4, 3),
+  ('Junior Developer', 7, 3),
+  ('Software Engineer', 1, 4),
+  ('Software Engineer', 2, 4),
+  ('Software Engineer', 3, 4),
+  ('Software Engineer', 5, 4),
+  ('Software Engineer', 8, 3),
+  ('QA Engineer', 4, 3),
+  ('QA Engineer', 5, 4),
+  ('QA Engineer', 9, 4),
+  ('QA Engineer', 7, 3),
+  ('Senior Software Engineer', 1, 5),
+  ('Senior Software Engineer', 2, 4),
+  ('Senior Software Engineer', 3, 5),
+  ('Senior Software Engineer', 8, 5),
+  ('Senior Software Engineer', 6, 4),
+  ('UI/UX Designer', 12, 4),
+  ('UI/UX Designer', 13, 4),
+  ('UI/UX Designer', 6, 4),
+  ('UI/UX Designer', 7, 3),
+  ('DevOps Engineer', 4, 4),
+  ('DevOps Engineer', 10, 4),
+  ('DevOps Engineer', 11, 4),
+  ('DevOps Engineer', 16, 4),
+  ('Data Analyst', 14, 4),
+  ('Data Analyst', 15, 4),
+  ('Data Analyst', 6, 3),
+  ('Data Analyst', 7, 3);
+
+
+INSERT INTO
+  employee_skills (
+    employee_id,
+    skill_id,
+    current_level,
+    assessed_by,
+    assessed_at
+  )
+VALUES
+  (4, 1, 2, 3, '2026-07-05'),
+  (4, 2, 3, 3, '2026-07-05'),
+  (4, 4, 2, 3, '2026-07-05'),
+  (4, 7, 1, 3, '2026-07-05'),
+  (5, 1, 4, 3, '2026-07-05'),
+  (5, 2, 3, 3, '2026-07-05'),
+  (5, 3, 4, 3, '2026-07-05'),
+  (5, 5, 3, 3, '2026-07-05'),
+  (5, 8, 4, 3, '2026-07-05'),
+  (6, 4, 4, 3, '2026-07-06'),
+  (6, 5, 4, 3, '2026-07-06'),
+  (6, 9, 3, 3, '2026-07-06'),
+  (6, 7, 3, 3, '2026-07-06'),
+  (7, 1, 4, 3, '2026-07-06'),
+  (7, 2, 4, 3, '2026-07-06'),
+  (7, 3, 3, 3, '2026-07-06'),
+  (7, 5, 3, 3, '2026-07-06'),
+  (7, 8, 3, 3, '2026-07-06'),
+  (8, 1, 5, 3, '2026-07-07'),
+  (8, 2, 4, 3, '2026-07-07'),
+  (8, 3, 5, 3, '2026-07-07'),
+  (8, 8, 5, 3, '2026-07-07'),
+  (8, 6, 3, 3, '2026-07-07'),
+  (9, 12, 5, 3, '2026-07-08'),
+  (9, 13, 5, 3, '2026-07-08'),
+  (9, 6, 4, 3, '2026-07-08'),
+  (9, 7, 3, 3, '2026-07-08'),
+  (10, 4, 4, 3, '2026-07-09'),
+  (10, 10, 4, 3, '2026-07-09'),
+  (10, 11, 3, 3, '2026-07-09'),
+  (10, 16, 2, 3, '2026-07-09'),
+  (11, 14, 4, 3, '2026-07-10'),
+  (11, 15, 5, 3, '2026-07-10'),
+  (11, 6, 2, 3, '2026-07-10'),
+  (11, 7, 3, 3, '2026-07-10');
+
+
+INSERT INTO
+  review_cycles (
+    name,
+    period_start,
+    period_end,
+    self_deadline,
+    peer_deadline,
+    manager_deadline,
+    status,
+    created_by,
+    released_at
+  )
+VALUES
+  (
+    'H2 2025 Review',
+    '2025-07-01',
+    '2025-12-31',
+    '2026-01-09',
+    '2026-01-16',
+    '2026-01-23',
+    'closed',
+    1,
+    '2026-01-28 09:00:00'
+  ),
+  (
+    'H1 2026 Review',
+    '2026-01-01',
+    '2026-06-30',
+    '2026-07-10',
+    '2026-07-17',
+    '2026-08-28',
+    'manager_review',
+    1,
+    NULL
+  );
+
+
+INSERT INTO
+  review_participants (
+    cycle_id,
+    employee_id,
+    manager_id,
+    status,
+    final_rating,
+    manager_summary,
+    released_at
+  )
+VALUES
+  (
+    1,
+    4,
+    3,
+    'released',
+    3.30,
+    'Good teamwork and improving technical confidence. Reliability remained the main development area.',
+    '2026-01-28 09:00:00'
+  ),
+  (
+    1,
+    5,
+    3,
+    'released',
+    4.10,
+    'Delivered strong API work and supported junior developers throughout the review period.',
+    '2026-01-28 09:00:00'
+  ),
+  (
+    1,
+    6,
+    3,
+    'released',
+    3.85,
+    'Dependable tester with solid attention to detail and growing automation capability.',
+    '2026-01-28 09:00:00'
+  ),
+  (
+    1,
+    7,
+    3,
+    'released',
+    3.70,
+    'Consistent delivery with an opportunity to communicate technical decisions more clearly.',
+    '2026-01-28 09:00:00'
+  ),
+  (
+    1,
+    8,
+    3,
+    'released',
+    4.60,
+    'A strong technical leader who improved architecture quality across the team.',
+    '2026-01-28 09:00:00'
+  ),
+  (
+    1,
+    9,
+    3,
+    'released',
+    4.45,
+    'Produced thoughtful user-centred designs and handled stakeholder feedback well.',
+    '2026-01-28 09:00:00'
+  ),
+  (
+    1,
+    10,
+    3,
+    'released',
+    3.40,
+    'Improved deployment stability but needed more consistent incident documentation.',
+    '2026-01-28 09:00:00'
+  ),
+  (
+    1,
+    11,
+    3,
+    'released',
+    3.75,
+    'Built useful reports and improved the accuracy of monthly performance data.',
+    '2026-01-28 09:00:00'
+  ),
+  (
+    1,
+    3,
+    2,
+    'released',
+    4.30,
+    'Created a supportive team culture and improved the regularity of coaching conversations.',
+    '2026-01-28 09:00:00'
+  ),
+  (2, 4, 3, 'peers_complete', NULL, NULL, NULL),
+  (
+    2,
+    5,
+    3,
+    'manager_submitted',
+    4.45,
+    'Amaya delivered the API refactor ahead of schedule and consistently helped other team members.',
+    NULL
+  ),
+  (2, 6, 3, 'self_submitted', NULL, NULL, NULL),
+  (2, 7, 3, 'not_started', NULL, NULL, NULL),
+  (
+    2,
+    8,
+    3,
+    'manager_submitted',
+    4.75,
+    'Sahan led complex design decisions, reduced technical risk and coached the team effectively.',
+    NULL
+  ),
+  (2, 9, 3, 'peers_complete', NULL, NULL, NULL),
+  (
+    2,
+    10,
+    3,
+    'manager_submitted',
+    3.20,
+    CONCAT(
+      'Farah improved deployment automation, but incident follow-up and ',
+      'monitoring ownership need to become more consistent.'
+    ),
+    NULL
+  ),
+  (2, 11, 3, 'self_submitted', NULL, NULL, NULL);
+
+
+INSERT INTO
+  peer_nominations (
+    participant_id,
+    peer_id,
+    status,
+    nominated_by,
+    decided_by
+  )
+VALUES
+  (10, 5, 'approved', 4, 3),
+  (10, 6, 'approved', 4, 3),
+  (10, 7, 'approved', 4, 3),
+  (11, 4, 'approved', 5, 3),
+  (11, 8, 'approved', 5, 3),
+  (11, 9, 'approved', 5, 3),
+  (12, 5, 'pending', 6, NULL),
+  (12, 7, 'approved', 6, 3),
+  (13, 4, 'pending', 7, NULL),
+  (13, 5, 'pending', 7, NULL),
+  (14, 4, 'approved', 8, 3),
+  (14, 5, 'approved', 8, 3),
+  (14, 10, 'approved', 8, 3),
+  (15, 5, 'approved', 9, 3),
+  (15, 7, 'approved', 9, 3),
+  (15, 11, 'approved', 9, 3),
+  (16, 5, 'approved', 10, 3),
+  (16, 6, 'approved', 10, 3),
+  (16, 8, 'approved', 10, 3),
+  (17, 6, 'pending', 11, NULL),
+  (17, 9, 'approved', 11, 3),
+  (17, 10, 'rejected', 11, 3);
+
+
+INSERT INTO
+  feedback_requests (
+    participant_id,
+    respondent_id,
+    type,
+    status,
+    submitted_at
+  )
+VALUES
+  (10, 4, 'self', 'submitted', '2026-07-08 10:00:00'),
+  (10, 5, 'peer', 'submitted', '2026-07-15 09:00:00'),
+  (10, 6, 'peer', 'submitted', '2026-07-16 14:00:00'),
+  (10, 7, 'peer', 'submitted', '2026-07-16 17:30:00'),
+  (10, 3, 'manager', 'pending', NULL),
+  (11, 5, 'self', 'submitted', '2026-07-07 11:30:00'),
+  (11, 4, 'peer', 'submitted', '2026-07-13 10:15:00'),
+  (11, 8, 'peer', 'submitted', '2026-07-14 15:00:00'),
+  (11, 9, 'peer', 'submitted', '2026-07-16 09:20:00'),
+  (
+    11,
+    3,
+    'manager',
+    'submitted',
+    '2026-08-04 14:00:00'
+  ),
+  (12, 6, 'self', 'submitted', '2026-07-09 16:00:00'),
+  (12, 5, 'peer', 'pending', NULL),
+  (12, 7, 'peer', 'pending', NULL),
+  (12, 3, 'manager', 'pending', NULL),
+  (13, 7, 'self', 'pending', NULL),
+  (13, 3, 'manager', 'pending', NULL),
+  (14, 8, 'self', 'submitted', '2026-07-06 13:00:00'),
+  (14, 4, 'peer', 'submitted', '2026-07-12 09:30:00'),
+  (14, 5, 'peer', 'submitted', '2026-07-14 11:15:00'),
+  (
+    14,
+    10,
+    'peer',
+    'submitted',
+    '2026-07-16 16:45:00'
+  ),
+  (
+    14,
+    3,
+    'manager',
+    'submitted',
+    '2026-08-03 10:30:00'
+  ),
+  (15, 9, 'self', 'submitted', '2026-07-09 12:30:00'),
+  (15, 5, 'peer', 'submitted', '2026-07-13 14:10:00'),
+  (15, 7, 'peer', 'submitted', '2026-07-15 10:40:00'),
+  (
+    15,
+    11,
+    'peer',
+    'submitted',
+    '2026-07-16 13:20:00'
+  ),
+  (15, 3, 'manager', 'pending', NULL),
+  (
+    16,
+    10,
+    'self',
+    'submitted',
+    '2026-07-10 09:45:00'
+  ),
+  (16, 5, 'peer', 'submitted', '2026-07-13 16:30:00'),
+  (16, 6, 'peer', 'submitted', '2026-07-14 10:00:00'),
+  (16, 8, 'peer', 'submitted', '2026-07-16 15:10:00'),
+  (
+    16,
+    3,
+    'manager',
+    'submitted',
+    '2026-08-05 11:20:00'
+  ),
+  (
+    17,
+    11,
+    'self',
+    'submitted',
+    '2026-07-10 15:00:00'
+  ),
+  (17, 6, 'peer', 'pending', NULL),
+  (17, 9, 'peer', 'pending', NULL),
+  (17, 3, 'manager', 'pending', NULL),
+  (9, 3, 'self', 'submitted', '2026-01-07 10:00:00'),
+  (9, 4, 'peer', 'submitted', '2026-01-13 09:00:00'),
+  (9, 5, 'peer', 'submitted', '2026-01-14 11:00:00'),
+  (9, 8, 'peer', 'submitted', '2026-01-15 14:00:00'),
+  (
+    9,
+    2,
+    'manager',
+    'submitted',
+    '2026-01-22 10:00:00'
+  );
+
+
+INSERT INTO
+  feedback_ratings (request_id, competency_id, score, comment)
+VALUES
+  (1, 1, 4, 'I explain my work clearly in standups'),
+  (1, 2, 3, 'Still learning the framework'),
+  (1, 3, 4, 'I help others when asked'),
+  (1, 4, 4, 'I finish what I start'),
+  (
+    1,
+    5,
+    3,
+    'I missed two deadlines during the period'
+  ),
+  (2, 1, 3, NULL),
+  (2, 2, 3, NULL),
+  (2, 3, 4, NULL),
+  (2, 4, 3, NULL),
+  (2, 5, 3, NULL),
+  (3, 1, 4, NULL),
+  (3, 2, 2, NULL),
+  (3, 3, 5, NULL),
+  (3, 4, 3, NULL),
+  (3, 5, 2, NULL),
+  (4, 1, 3, NULL),
+  (4, 2, 3, NULL),
+  (4, 3, 4, NULL),
+  (4, 4, 4, NULL),
+  (4, 5, 3, NULL),
+  (6, 1, 4, NULL),
+  (6, 2, 5, NULL),
+  (6, 3, 4, NULL),
+  (6, 4, 5, NULL),
+  (6, 5, 4, NULL),
+  (7, 1, 4, NULL),
+  (7, 2, 4, NULL),
+  (7, 3, 5, NULL),
+  (7, 4, 4, NULL),
+  (7, 5, 5, NULL),
+  (8, 1, 5, NULL),
+  (8, 2, 5, NULL),
+  (8, 3, 4, NULL),
+  (8, 4, 5, NULL),
+  (8, 5, 4, NULL),
+  (9, 1, 4, NULL),
+  (9, 2, 4, NULL),
+  (9, 3, 5, NULL),
+  (9, 4, 4, NULL),
+  (9, 5, 4, NULL),
+  (10, 1, 4, 'Communicates decisions clearly'),
+  (10, 2, 5, 'Strong API delivery'),
+  (10, 3, 5, 'Supports junior developers'),
+  (10, 4, 4, 'Takes ownership'),
+  (10, 5, 4, 'Dependable delivery'),
+  (11, 1, 4, NULL),
+  (11, 2, 4, NULL),
+  (11, 3, 4, NULL),
+  (11, 4, 4, NULL),
+  (11, 5, 4, NULL),
+  (17, 1, 4, NULL),
+  (17, 2, 5, NULL),
+  (17, 3, 5, NULL),
+  (17, 4, 5, NULL),
+  (17, 5, 5, NULL),
+  (18, 1, 5, NULL),
+  (18, 2, 5, NULL),
+  (18, 3, 4, NULL),
+  (18, 4, 5, NULL),
+  (18, 5, 5, NULL),
+  (19, 1, 4, NULL),
+  (19, 2, 5, NULL),
+  (19, 3, 5, NULL),
+  (19, 4, 5, NULL),
+  (19, 5, 4, NULL),
+  (20, 1, 5, NULL),
+  (20, 2, 4, NULL),
+  (20, 3, 5, NULL),
+  (20, 4, 5, NULL),
+  (20, 5, 5, NULL),
+  (21, 1, 5, 'Explains technical trade-offs well'),
+  (21, 2, 5, 'Excellent technical depth'),
+  (21, 3, 5, 'Coaches the team'),
+  (21, 4, 5, 'Owns difficult decisions'),
+  (21, 5, 4, 'Consistently reliable'),
+  (22, 1, 5, NULL),
+  (22, 2, 4, NULL),
+  (22, 3, 5, NULL),
+  (22, 4, 4, NULL),
+  (22, 5, 5, NULL),
+  (23, 1, 5, NULL),
+  (23, 2, 4, NULL),
+  (23, 3, 5, NULL),
+  (23, 4, 4, NULL),
+  (23, 5, 4, NULL),
+  (24, 1, 4, NULL),
+  (24, 2, 5, NULL),
+  (24, 3, 4, NULL),
+  (24, 4, 5, NULL),
+  (24, 5, 4, NULL),
+  (25, 1, 5, NULL),
+  (25, 2, 4, NULL),
+  (25, 3, 5, NULL),
+  (25, 4, 4, NULL),
+  (25, 5, 5, NULL),
+  (27, 1, 3, NULL),
+  (27, 2, 4, NULL),
+  (27, 3, 4, NULL),
+  (27, 4, 3, NULL),
+  (27, 5, 3, NULL),
+  (28, 1, 3, NULL),
+  (28, 2, 4, NULL),
+  (28, 3, 4, NULL),
+  (28, 4, 3, NULL),
+  (28, 5, 3, NULL),
+  (29, 1, 4, NULL),
+  (29, 2, 3, NULL),
+  (29, 3, 4, NULL),
+  (29, 4, 3, NULL),
+  (29, 5, 2, NULL),
+  (30, 1, 3, NULL),
+  (30, 2, 4, NULL),
+  (30, 3, 3, NULL),
+  (30, 4, 3, NULL),
+  (30, 5, 3, NULL),
+  (31, 1, 3, 'Communicates well during planned work'),
+  (31, 2, 4, 'Good automation knowledge'),
+  (31, 3, 3, 'Supports the team when asked'),
+  (31, 4, 3, 'Incident follow-up needs improvement'),
+  (31, 5, 3, 'More consistency is required'),
+  (36, 1, 4, NULL),
+  (36, 2, 4, NULL),
+  (36, 3, 4, NULL),
+  (36, 4, 5, NULL),
+  (36, 5, 4, NULL),
+  (37, 1, 4, NULL),
+  (37, 2, 4, NULL),
+  (37, 3, 5, NULL),
+  (37, 4, 4, NULL),
+  (37, 5, 4, NULL),
+  (38, 1, 5, NULL),
+  (38, 2, 4, NULL),
+  (38, 3, 5, NULL),
+  (38, 4, 4, NULL),
+  (38, 5, 4, NULL),
+  (39, 1, 4, NULL),
+  (39, 2, 5, NULL),
+  (39, 3, 4, NULL),
+  (39, 4, 5, NULL),
+  (39, 5, 4, NULL),
+  (40, 1, 4, 'Clear and supportive manager'),
+  (40, 2, 4, 'Understands technical priorities'),
+  (40, 3, 5, 'Builds collaboration'),
+  (40, 4, 4, 'Takes responsibility'),
+  (40, 5, 4, 'Maintains regular coaching');
+
+
+INSERT INTO
+  feedback_summary (request_id, strengths, improvements)
+VALUES
+  (
+    2,
+    'Always willing to help with testing',
+    'Could ask for help earlier when stuck'
+  ),
+  (
+    3,
+    'Great team spirit',
+    'Code reviews take a long time to come back'
+  ),
+  (
+    4,
+    'Positive attitude',
+    'Needs to communicate blockers sooner'
+  ),
+  (
+    7,
+    'Strong API knowledge and patient mentoring',
+    'Could delegate smaller tasks earlier'
+  ),
+  (
+    8,
+    'Reliable technical advice',
+    'Could document decisions more consistently'
+  ),
+  (
+    9,
+    'Works well across design and engineering',
+    'Could protect more focus time'
+  ),
+  (
+    18,
+    'Excellent technical judgement',
+    'Could make architecture notes easier for junior staff to follow'
+  ),
+  (
+    19,
+    'Calm and helpful during complex work',
+    'Could involve QA earlier in design discussions'
+  ),
+  (
+    20,
+    'Strong incident support',
+    'Could communicate planned changes sooner'
+  ),
+  (
+    23,
+    'Thoughtful design feedback',
+    'Could shorten review turnaround during busy periods'
+  ),
+  (
+    24,
+    'Strong user focus',
+    'Could share more work-in-progress designs'
+  ),
+  (
+    25,
+    'Clear visual communication',
+    'Could document research findings more consistently'
+  ),
+  (
+    28,
+    'Helpful with deployment questions',
+    'Could write more detailed incident notes'
+  ),
+  (
+    29,
+    'Strong automation knowledge',
+    'Could improve ownership after incidents'
+  ),
+  (
+    30,
+    'Responds quickly during releases',
+    'Could raise monitoring risks earlier'
+  ),
+  (
+    37,
+    'Supportive coaching style',
+    'Could make priorities more explicit'
+  ),
+  (
+    38,
+    'Creates psychological safety',
+    'Could delegate more operational decisions'
+  ),
+  (
+    39,
+    'Strong technical context',
+    'Could communicate roadmap changes earlier'
+  );
+
+
+INSERT INTO
+  goals (
+    employee_id,
+    manager_id,
+    title,
+    description,
+    due_date,
+    status
+  )
+VALUES
+  (
+    4,
+    3,
+    'Improve delivery reliability',
+    'Meet sprint commitments consistently',
+    '2026-09-30',
+    'in_progress'
+  ),
+  (
+    4,
+    3,
+    'Build reusable PHP module',
+    'Create and document one reusable validation module',
+    '2026-10-20',
+    'not_started'
+  ),
+  (
+    4,
+    3,
+    'Close inherited defect backlog',
+    'Resolve the ten oldest assigned defects',
+    '2026-06-30',
+    'completed'
+  ),
+  (
+    5,
+    3,
+    'Lead API refactor',
+    'Complete v2 endpoints and document the changes',
+    '2026-09-20',
+    'in_progress'
+  ),
+  (
+    5,
+    3,
+    'Mentor a junior developer',
+    'Hold six pairing sessions and document learning outcomes',
+    '2026-08-15',
+    'completed'
+  ),
+  (
+    6,
+    3,
+    'Automate regression suite',
+    'Automate every critical-path scenario in the approved regression plan',
+    '2026-10-15',
+    'in_progress'
+  ),
+  (
+    6,
+    3,
+    'Publish mobile test plan',
+    'Complete coverage for the July mobile release',
+    '2026-07-20',
+    'missed'
+  ),
+  (
+    7,
+    3,
+    'Improve code review turnaround',
+    'Complete reviews within 24 hours',
+    '2026-09-15',
+    'in_progress'
+  ),
+  (
+    7,
+    3,
+    'Improve JavaScript performance',
+    'Reduce dashboard load time below two seconds',
+    '2026-11-15',
+    'not_started'
+  ),
+  (
+    8,
+    3,
+    'Document architecture decisions',
+    'Publish ADRs for all major H1 technical decisions',
+    '2026-07-31',
+    'completed'
+  ),
+  (
+    8,
+    3,
+    'Reduce API response time',
+    'Profile core endpoints and bring their median response time below the agreed two-second threshold',
+    '2026-10-31',
+    'in_progress'
+  ),
+  (
+    9,
+    3,
+    'Complete usability study',
+    'Run five moderated sessions and present findings',
+    '2026-07-25',
+    'completed'
+  ),
+  (
+    9,
+    3,
+    'Expand the design system',
+    'Add accessible patterns for forms, tables and empty states',
+    '2026-10-10',
+    'in_progress'
+  ),
+  (
+    10,
+    3,
+    'Improve deployment rollback time',
+    'Reduce average rollback time to under ten minutes',
+    '2026-10-30',
+    'in_progress'
+  ),
+  (
+    10,
+    3,
+    'Complete monitoring ownership map',
+    'Assign an owner and runbook to all production alerts',
+    '2026-07-31',
+    'missed'
+  ),
+  (
+    11,
+    3,
+    'Automate monthly reporting',
+    'Generate the monthly team metrics without manual spreadsheet work',
+    '2026-09-05',
+    'in_progress'
+  ),
+  (
+    11,
+    3,
+    'Improve data-quality checks',
+    'Add validation rules to all quarterly datasets',
+    '2026-11-30',
+    'not_started'
+  ),
+  (
+    3,
+    3,
+    'Improve manager coaching cadence',
+    'Hold structured monthly coaching sessions with direct reports',
+    '2026-12-31',
+    'in_progress'
+  ),
+  (
+    3,
+    3,
+    'Complete leadership workshop',
+    'Complete the leadership development workshop',
+    '2026-11-30',
+    'in_progress'
+  ),
+  (
+    3,
+    3,
+    'Quarterly team development review',
+    'Complete the quarterly development review',
+    '2026-09-30',
+    'completed'
+  );
+
+
+INSERT INTO
+  pdps (
+    employee_id,
+    manager_id,
+    participant_id,
+    summary,
+    status
+  )
+VALUES
+  (
+    4,
+    3,
+    10,
+    'Focus on deepening PHP and improving deadline reliability',
+    'draft'
+  ),
+  (
+    5,
+    3,
+    11,
+    'Prepare for greater technical leadership and mentoring responsibility',
+    'agreed'
+  ),
+  (
+    6,
+    3,
+    12,
+    'Strengthen automated testing and release-risk planning',
+    'agreed'
+  ),
+  (
+    8,
+    3,
+    14,
+    'Continue developing technical leadership and presentation capability',
+    'agreed'
+  ),
+  (
+    9,
+    3,
+    15,
+    'Build stronger research documentation and facilitation skills',
+    'agreed'
+  ),
+  (
+    10,
+    3,
+    16,
+    'Improve monitoring ownership and incident-management consistency',
+    'agreed'
+  ),
+  (
+    11,
+    3,
+    17,
+    'Develop presentation confidence and stakeholder storytelling',
+    'draft'
+  ),
+  (
+    3,
+    3,
+    NULL,
+    'Continue strengthening coaching and leadership capability',
+    'agreed'
+  );
+
+
+INSERT INTO
+  pdp_actions (
+    pdp_id,
+    title,
+    description,
+    skill_id,
+    due_date,
+    status
+  )
+VALUES
+  (
+    1,
+    'Complete PHP OOP course',
+    'Finish an online OOP course and build one sample module',
+    1,
+    '2026-10-31',
+    'in_progress'
+  ),
+  (
+    1,
+    'Present at team knowledge session',
+    'Deliver one 15-minute session to the team',
+    6,
+    '2026-09-30',
+    'not_started'
+  ),
+  (
+    2,
+    'Complete advanced API design course',
+    'Complete the course and apply two patterns to the v2 API',
+    8,
+    '2026-09-25',
+    'in_progress'
+  ),
+  (
+    2,
+    'Run junior developer pairing sessions',
+    'Complete six planned mentoring sessions',
+    6,
+    '2026-08-15',
+    'completed'
+  ),
+  (
+    3,
+    'Expand automated regression coverage',
+    'Automate twenty additional critical-path scenarios',
+    9,
+    '2026-10-15',
+    'in_progress'
+  ),
+  (
+    3,
+    'Create release risk checklist',
+    'Pilot the checklist across two releases',
+    7,
+    '2026-09-20',
+    'in_progress'
+  ),
+  (
+    4,
+    'Present architecture roadmap',
+    'Deliver the Q4 architecture roadmap to engineering leadership',
+    6,
+    '2026-09-10',
+    'in_progress'
+  ),
+  (
+    5,
+    'Document usability research findings',
+    'Create a reusable research report template',
+    12,
+    '2026-09-30',
+    'in_progress'
+  ),
+  (
+    5,
+    'Facilitate accessibility workshop',
+    'Run one practical accessibility workshop for the product team',
+    6,
+    '2026-08-12',
+    'completed'
+  ),
+  (
+    6,
+    'Build monitoring runbooks',
+    'Create runbooks for the ten highest-priority alerts',
+    16,
+    '2026-08-28',
+    'in_progress'
+  ),
+  (
+    6,
+    'Complete incident-management simulation',
+    'Lead one tabletop production-incident exercise',
+    7,
+    '2026-09-18',
+    'not_started'
+  ),
+  (
+    7,
+    'Present monthly insights',
+    'Deliver two monthly data presentations to non-technical stakeholders',
+    6,
+    '2026-09-05',
+    'in_progress'
+  ),
+  (
+    8,
+    'Complete leadership workshop',
+    'Complete the leadership development workshop and document three applied coaching practices',
+    NULL,
+    '2026-11-30',
+    'in_progress'
+  ),
+  (
+    8,
+    'Apply coaching framework',
+    'Use the GROW framework in four documented one-to-one sessions',
+    NULL,
+    '2026-07-31',
+    'completed'
+  );
+
+
+INSERT INTO
+  action_updates (
+    action_id,
+    author_id,
+    note,
+    new_status,
+    created_at
+  )
+VALUES
+  (
+    1,
+    4,
+    'Completed the inheritance and interfaces section and started the sample module.',
+    'in_progress',
+    '2026-08-05 10:00:00'
+  ),
+  (
+    3,
+    5,
+    'Applied the first API pattern to the authentication endpoints.',
+    'in_progress',
+    '2026-08-07 15:30:00'
+  ),
+  (
+    4,
+    3,
+    'All six mentoring sessions were completed with positive feedback.',
+    'completed',
+    '2026-08-15 16:00:00'
+  ),
+  (
+    5,
+    6,
+    'Added eight new automated checkout and login scenarios.',
+    'in_progress',
+    '2026-08-09 11:20:00'
+  ),
+  (
+    9,
+    9,
+    'Workshop completed with twelve attendees from design and engineering.',
+    'completed',
+    '2026-08-12 14:30:00'
+  ),
+  (
+    10,
+    10,
+    'Drafted runbooks for database latency, disk usage and failed deployments.',
+    'in_progress',
+    '2026-08-14 09:15:00'
+  ),
+  (
+    12,
+    11,
+    'First monthly presentation delivered to the product team.',
+    'in_progress',
+    '2026-08-11 13:00:00'
+  ),
+  (
+    14,
+    3,
+    'Four coaching sessions have now used the agreed framework.',
+    'completed',
+    '2026-08-01 17:00:00'
+  );
+
+
+INSERT INTO
+  pips (
+    employee_id,
+    manager_id,
+    hr_owner_id,
+    reason,
+    start_date,
+    end_date,
+    status
+  )
+VALUES
+  (
+    4,
+    3,
+    1,
+    'Repeated missed delivery commitments',
+    '2026-08-01',
+    '2026-10-31',
+    'active'
+  ),
+  (
+    10,
+    3,
+    1,
+    'Inconsistent incident follow-up and incomplete production monitoring documentation',
+    '2026-06-01',
+    '2026-09-30',
+    'extended'
+  ),
+  (
+    6,
+    3,
+    1,
+    'Missed regression-planning deadlines during two consecutive releases',
+    '2025-10-01',
+    '2025-12-15',
+    'successful'
+  );
+
+
+UPDATE pips
+SET
+  outcome_note = CONCAT(
+    'The plan was extended by four weeks to verify that incident ',
+    'documentation and alert ownership remain consistent.'
+  )
+WHERE
+  id = 2;
+
+
+UPDATE pips
+SET
+  outcome_note = CONCAT(
+    'All objectives were met and release-planning reliability improved ',
+    'across the final two release cycles.'
+  )
+WHERE
+  id = 3;
+
+
+INSERT INTO
+  pip_objectives (
+    pip_id,
+    objective,
+    success_criteria,
+    due_date,
+    status
+  )
+VALUES
+  (
+    1,
+    'Complete agreed sprint commitments',
+    'Confirm the sprint commitment before work starts and finish every committed item, or document and escalate the blocker within one working day',
+    '2026-09-15',
+    'partially_met'
+  ),
+  (
+    1,
+    'Communicate blockers within one working day',
+    'All blockers are communicated to the manager within one working day',
+    '2026-09-01',
+    'not_met'
+  ),
+  (
+    2,
+    'Complete incident reports within two working days',
+    'Every production incident has a complete report within two working days for eight consecutive weeks',
+    '2026-09-15',
+    'partially_met'
+  ),
+  (
+    2,
+    'Assign ownership to all critical alerts',
+    'Every critical alert has a named owner and linked runbook',
+    '2026-08-31',
+    'partially_met'
+  ),
+  (
+    2,
+    'Lead one incident simulation',
+    'Plan, lead and document one cross-team incident simulation',
+    '2026-09-20',
+    'not_met'
+  ),
+  (
+    3,
+    'Submit release test plans on time',
+    'Submit complete test plans at least five working days before three consecutive releases',
+    '2025-11-30',
+    'met'
+  ),
+  (
+    3,
+    'Report blockers during daily stand-up',
+    'Raise every testing blocker on the day it is discovered',
+    '2025-11-30',
+    'met'
+  );
+
+
+-- Seed three checkable steps for every work item. Completed-step counts replace
+-- the former percentage values throughout the application.
+INSERT INTO work_steps
+  (goal_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  id,
+  'Confirm the expected outcome and evidence with the task owner',
+  1,
+  manager_id,
+  status IN ('in_progress', 'completed', 'missed'),
+  IF(status IN ('in_progress', 'completed', 'missed'), manager_id, NULL),
+  IF(status IN ('in_progress', 'completed', 'missed'), NOW(), NULL)
+FROM goals;
+
+
+INSERT INTO work_steps
+  (goal_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  id,
+  description,
+  2,
+  manager_id,
+  status = 'completed',
+  IF(status = 'completed', manager_id, NULL),
+  IF(status = 'completed', NOW(), NULL)
+FROM goals;
+
+
+INSERT INTO work_steps
+  (goal_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  id,
+  'Share the completed evidence with the task owner',
+  3,
+  manager_id,
+  status = 'completed',
+  IF(status = 'completed', manager_id, NULL),
+  IF(status = 'completed', NOW(), NULL)
+FROM goals;
+
+
+INSERT INTO work_steps
+  (pdp_action_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  pa.id,
+  'Confirm the learning activity and evidence to provide',
+  1,
+  p.manager_id,
+  pa.status IN ('in_progress', 'completed', 'overdue'),
+  IF(pa.status IN ('in_progress', 'completed', 'overdue'), p.manager_id, NULL),
+  IF(pa.status IN ('in_progress', 'completed', 'overdue'), NOW(), NULL)
+FROM pdp_actions pa
+JOIN pdps p ON p.id = pa.pdp_id;
+
+
+INSERT INTO work_steps
+  (pdp_action_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  pa.id,
+  pa.description,
+  2,
+  p.manager_id,
+  pa.status = 'completed',
+  IF(pa.status = 'completed', p.manager_id, NULL),
+  IF(pa.status = 'completed', NOW(), NULL)
+FROM pdp_actions pa
+JOIN pdps p ON p.id = pa.pdp_id;
+
+
+INSERT INTO work_steps
+  (pdp_action_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  pa.id,
+  'Record the learning outcome and how it will be applied',
+  3,
+  p.manager_id,
+  pa.status = 'completed',
+  IF(pa.status = 'completed', p.manager_id, NULL),
+  IF(pa.status = 'completed', NOW(), NULL)
+FROM pdp_actions pa
+JOIN pdps p ON p.id = pa.pdp_id;
+
+
+INSERT INTO work_steps
+  (pip_objective_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  po.id,
+  'Confirm the required evidence and due date',
+  1,
+  p.manager_id,
+  po.status IN ('partially_met', 'met'),
+  IF(po.status IN ('partially_met', 'met'), p.manager_id, NULL),
+  IF(po.status IN ('partially_met', 'met'), NOW(), NULL)
+FROM pip_objectives po
+JOIN pips p ON p.id = po.pip_id;
+
+
+INSERT INTO work_steps
+  (pip_objective_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  po.id,
+  po.success_criteria,
+  2,
+  p.manager_id,
+  po.status = 'met',
+  IF(po.status = 'met', p.manager_id, NULL),
+  IF(po.status = 'met', NOW(), NULL)
+FROM pip_objectives po
+JOIN pips p ON p.id = po.pip_id;
+
+
+INSERT INTO work_steps
+  (pip_objective_id, title, step_order, created_by, is_completed, completed_by, completed_at)
+SELECT
+  po.id,
+  'Review the evidence with the manager and HR owner',
+  3,
+  p.manager_id,
+  po.status = 'met',
+  IF(po.status = 'met', p.manager_id, NULL),
+  IF(po.status = 'met', NOW(), NULL)
+FROM pip_objectives po
+JOIN pips p ON p.id = po.pip_id;
+
+
+INSERT INTO
+  pip_checkins (pip_id, checkin_date, author_id, notes)
+VALUES
+  (
+    1,
+    '2026-08-08',
+    3,
+    'Discussed sprint planning and blocker escalation.'
+  ),
+  (
+    1,
+    '2026-08-15',
+    3,
+    'Delivery improved this sprint, but one blocker was still raised late.'
+  ),
+  (
+    2,
+    '2026-06-15',
+    3,
+    'Reviewed the first incident report and agreed on a standard template.'
+  ),
+  (
+    2,
+    '2026-07-01',
+    3,
+    'Five critical alerts now have named owners and draft runbooks.'
+  ),
+  (
+    2,
+    '2026-07-22',
+    3,
+    'A delayed incident report triggered an extension of the plan.'
+  ),
+  (
+    2,
+    '2026-08-12',
+    3,
+    'Documentation quality improved; the incident simulation still needs to be scheduled.'
+  ),
+  (
+    3,
+    '2025-10-15',
+    3,
+    'The next release test plan was submitted on time.'
+  ),
+  (
+    3,
+    '2025-11-05',
+    3,
+    'Blocker communication improved and no planning deadlines were missed.'
+  ),
+  (
+    3,
+    '2025-12-10',
+    3,
+    'All objectives were met across the final review period.'
+  );
+
+
+INSERT INTO
+  login_attempts (email, ip_address, success, attempted_at)
+VALUES
+  (
+    'kavindu@demo.lk',
+    '127.0.0.1',
+    1,
+    '2026-08-10 08:55:00'
+  ),
+  (
+    'kavindu@demo.lk',
+    '127.0.0.1',
+    0,
+    '2026-08-11 09:01:00'
+  ),
+  (
+    'kavindu@demo.lk',
+    '127.0.0.1',
+    1,
+    '2026-08-11 09:02:00'
+  ),
+  (
+    'hr@demo.lk',
+    '127.0.0.1',
+    1,
+    '2026-08-12 10:30:00'
+  );
+
+
+INSERT INTO
+  notification_reads (user_id, notification_key, read_at)
+VALUES
+  (3, 'review-7', '2026-08-12 09:00:00'),
+  (3, 'review-6', '2026-08-14 15:30:00');
+
+
+INSERT INTO
+  audit_log (
+    user_id,
+    action,
+    entity_type,
+    entity_id,
+    detail,
+    ip_address,
+    created_at
+  )
+VALUES
+  (
+    3,
+    'VIEW_MANAGER_DASHBOARD',
+    'dashboard',
+    NULL,
+    'Opened manager dashboard',
+    '127.0.0.1',
+    '2026-08-03 08:45:00'
+  ),
+  (
+    3,
+    'SUBMIT_MANAGER_REVIEW',
+    'review_participant',
+    14,
+    'Submitted manager review for Sahan de Alwis',
+    '127.0.0.1',
+    '2026-08-03 10:30:00'
+  ),
+  (
+    3,
+    'SUBMIT_MANAGER_REVIEW',
+    'review_participant',
+    11,
+    'Submitted manager review for Amaya Rathnayake',
+    '127.0.0.1',
+    '2026-08-04 14:00:00'
+  ),
+  (
+    3,
+    'SUBMIT_MANAGER_REVIEW',
+    'review_participant',
+    16,
+    'Submitted manager review for Farah Iqbal',
+    '127.0.0.1',
+    '2026-08-05 11:20:00'
+  ),
+  (
+    3,
+    'UPDATE_GOAL',
+    'goal',
+    4,
+    'Completed the API documentation step',
+    '127.0.0.1',
+    '2026-08-07 16:00:00'
+  ),
+  (
+    3,
+    'ADD_PIP_CHECKIN',
+    'pip',
+    1,
+    'Recorded weekly PIP check-in',
+    '127.0.0.1',
+    '2026-08-08 15:00:00'
+  ),
+  (
+    3,
+    'APPROVE_PEER',
+    'peer_nomination',
+    11,
+    'Approved peer nomination',
+    '127.0.0.1',
+    '2026-08-10 10:00:00'
+  ),
+  (
+    3,
+    'MARK_NOTIFICATIONS_READ',
+    'notification',
+    NULL,
+    'Marked two notifications as read',
+    '127.0.0.1',
+    '2026-08-14 15:30:00'
+  );
+
 INSERT INTO permissions(permission_code,description) VALUES
  ('org.structure.view','View own reporting path and scoped organization'),
  ('org.structure.manage','Manage organization assignments'),
@@ -645,50 +2225,3 @@ INSERT INTO role_permissions(role_code,permission_id)
  OR (p.permission_code='org.descendants.view' AND r.role_code IN ('manager','hr','admin','leadership'))
  OR (p.permission_code='org.structure.manage' AND r.role_code IN ('hr','admin'))
  OR (p.permission_code='org.structure.view_all' AND r.role_code IN ('hr','admin','leadership'));
-
--- Apply once after 002_actionable_work_steps.sql, in the selected database.
-ALTER TABLE work_steps
-  ADD COLUMN status ENUM('not_started','in_progress','blocked','completed') NOT NULL DEFAULT 'not_started',
-  ADD COLUMN progress_note TEXT NULL,
-  ADD COLUMN version INT UNSIGNED NOT NULL DEFAULT 1;
-UPDATE work_steps SET status=IF(is_completed=1,'completed','not_started');
-ALTER TABLE work_steps ADD CONSTRAINT chk_step_completion
-  CHECK ((status='completed') = is_completed);
-
-INSERT IGNORE INTO permissions(permission_code,description) VALUES
- ('hr.pips','Manage explicitly assigned HR improvement plans');
-INSERT IGNORE INTO role_permissions(role_code,permission_id)
- SELECT r.role_code,p.id FROM roles r CROSS JOIN permissions p
- WHERE (p.permission_code='employee.dashboard' AND r.role_code IN ('manager','hr','admin'))
-    OR (p.permission_code='hr.pips' AND r.role_code IN ('hr','admin'));
-
--- Access levels are permission sets, independent from job titles/reporting lines.
-INSERT IGNORE INTO roles(role_code,display_name,dashboard_path) VALUES
- ('hr_partner','HR Partner','hr-dashboard.html'),
- ('hr_coordinator','HR Coordinator','hr-dashboard.html');
-INSERT IGNORE INTO role_permissions(role_code,permission_id)
- SELECT r.role_code,p.id FROM roles r CROSS JOIN permissions p
- WHERE (r.role_code IN ('hr_partner','hr_coordinator') AND p.permission_code IN
-   ('password.change','employee.dashboard','hr.dashboard','org.structure.view'))
- OR (r.role_code='hr_partner' AND p.permission_code IN ('hr.pips','hr.reports','org.structure.view_all'));
-
--- Only explicitly registered demo users belong to the resettable fixture.
-CREATE TABLE demo_users (
- user_id INT PRIMARY KEY,
- fixture_key VARCHAR(40) NOT NULL,
- FOREIGN KEY (user_id) REFERENCES users(id)
-);
-CREATE TABLE demo_records (
- table_name VARCHAR(40) NOT NULL,
- record_id INT NOT NULL,
- PRIMARY KEY (table_name,record_id)
-);
-
--- Remove legacy health states from progress; due dates remain the source of overdue health.
-UPDATE goals g LEFT JOIN (SELECT goal_id,COUNT(*) total,SUM(is_completed) completed FROM work_steps WHERE goal_id IS NOT NULL GROUP BY goal_id) s ON s.goal_id=g.id
-SET g.status=CASE WHEN s.total>0 AND s.total=s.completed THEN 'completed' WHEN s.completed>0 THEN 'in_progress' ELSE 'not_started' END;
-UPDATE pdp_actions a LEFT JOIN (SELECT pdp_action_id,COUNT(*) total,SUM(is_completed) completed FROM work_steps WHERE pdp_action_id IS NOT NULL GROUP BY pdp_action_id) s ON s.pdp_action_id=a.id
-SET a.status=CASE WHEN s.total>0 AND s.total=s.completed THEN 'completed' WHEN s.completed>0 THEN 'in_progress' ELSE 'not_started' END,
-a.completed_at=CASE WHEN s.total>0 AND s.total=s.completed THEN COALESCE(a.completed_at,NOW()) ELSE NULL END WHERE a.status<>'cancelled';
-
--- Load fictional content separately: php scripts/demo.php seed

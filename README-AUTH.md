@@ -3,8 +3,7 @@
 ## Current scope
 
 This increment includes login/authentication, the database-backed Manager
-dashboard, an employee workspace and a permission-scoped organization hierarchy.
-See README.md for current setup and demo instructions.
+dashboard and a permission-scoped organization hierarchy for every role.
 
 ## Included
 
@@ -33,8 +32,6 @@ See README.md for current setup and demo instructions.
 
 - `admin`
 - `hr`
-- `hr_partner`
-- `hr_coordinator`
 - `manager`
 - `employee`
 - `leadership` (currently routed to the Administrator placeholder)
@@ -43,11 +40,41 @@ Job titles never grant permissions. `role` is the system role, `job_title` is
 the organizational position, and `reporting_relationships` contains the dated
 manager links.
 
-## Demo credentials and reporting examples
+## Demo credentials
 
-See `users.txt` for the 12 fictional accounts and `README.md` for the focused demo.
-All demo passwords start as `password123`. Managers and HR staff also have personal
-employee workspaces. Job titles do not grant permissions.
+All seeded accounts initially use `password123`.
+
+- admin@demo.lk
+- hr@demo.lk
+- kavindu@demo.lk
+- priyanka@demo.lk
+- nimal@demo.lk
+- amaya@demo.lk
+- tharindu@demo.lk
+- ishara@demo.lk
+- akeel@demo.lk
+- hana@demo.lk
+- rishan@demo.lk
+- ceo@demo.lk
+- engineering-head@demo.lk
+- finance-head@demo.lk
+- hr-head@demo.lk
+- finance-manager@demo.lk
+- accountant@demo.lk
+- hr-executive@demo.lk
+
+Change demo passwords before using the application with real data.
+
+### Reporting examples
+
+- Nimal → Sahan (team lead) → Kavindu (manager) → Ravi (department head) → Leena (CEO).
+- Akeel → Priyanka (manager) → Ravi (department head) → Leena (CEO).
+- Tara → Noah (manager) → Maya (department head) → Leena (CEO).
+- Anika → Sanduni → Imaan (department head) → Leena (CEO).
+
+Nimal also has a closed historical primary relationship to Kavindu and a
+dotted-line relationship to Priyanka. Historical performance records continue
+to identify their originally assigned manager.
 
 ## Required folder layout
 
@@ -80,13 +107,13 @@ Linux hosting is case-sensitive, so `Js` and `js` are not interchangeable.
 
 1. Use PHP 8.1 or newer and MySQL 8/MariaDB through XAMPP.
 2. Start Apache and MySQL.
-3. Import `schema.sql` into a new demo database and run `php scripts/demo.php seed`.
+3. Import `schema.sql` in phpMyAdmin.
 4. Put the project under XAMPP's `htdocs` directory.
 5. Open `http://localhost/.../index.html`; do not use `file://`.
 6. Sign in with an account in `users.txt` and `password123`.
 
-The schema no longer drops databases. Use migration 003 to upgrade the latest
-branch, and the separate demo seed/reset commands documented in README.md.
+The supplied schema begins with `DROP DATABASE IF EXISTS perf_tracker`.
+Re-importing it resets the demo database and removes existing test changes.
 
 ## Database configuration
 
