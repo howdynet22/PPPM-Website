@@ -1,6 +1,6 @@
 (function () {
   const API = "api.php?action=";
-  const state = { user: null, people: [], tree: [], departments: [], teams: [] };
+  const state = { user: null, people: [], tree: [], departments: [], teams: [], currentPage: "directory" };
   const $ = (selector) => document.querySelector(selector);
   const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
@@ -22,6 +22,40 @@
     box.textContent = text;
     box.classList.toggle("error", error);
     if (text) setTimeout(() => { if (box.textContent === text) box.textContent = ""; }, 4500);
+  }
+
+  const pageCopy = {
+    directory: ["Employee Directory", "Find people and view their role, team and direct manager."],
+    hierarchy: ["Organization Hierarchy", "Explore reporting relationships across the organization."],
+    reporting: ["Reporting Path", "See the management chain for a selected employee."],
+    management: ["Manage Organization", "Update reporting lines, memberships, departments and teams."],
+  };
+
+  function showPage(requested, updateUrl = true) {
+    const canManage = new Set(state.user?.permissions || []).has("org.structure.manage");
+    const page = Object.hasOwn(pageCopy, requested) && (requested !== "management" || canManage)
+      ? requested
+      : "directory";
+    state.currentPage = page;
+    document.querySelectorAll('[id^="org-page-"].page').forEach((section) => {
+      section.classList.toggle("active", section.id === `org-page-${page}`);
+    });
+    document.querySelectorAll(".sidebar [data-org-page]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.orgPage === page);
+    });
+    $("#orgPageTitle").textContent = pageCopy[page][0];
+    $("#orgPageSubtitle").textContent = pageCopy[page][1];
+    if (updateUrl) history.replaceState(null, "", `#${page}`);
+  }
+
+  function showManagementTab(tab) {
+    document.querySelectorAll("[data-org-tab]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.orgTab === tab);
+      button.setAttribute("aria-selected", button.dataset.orgTab === tab ? "true" : "false");
+    });
+    document.querySelectorAll('[id^="org-tab-"].tab-panel').forEach((panel) => {
+      panel.classList.toggle("active", panel.id === `org-tab-${tab}`);
+    });
   }
 
   function optionList(includeBlank = false) {
@@ -53,6 +87,10 @@
         && (!department || String(person.department_id) === department)
         && (!team || String(person.team_id) === team);
     });
+    const noun = rows.length === 1 ? "employee" : "employees";
+    $("#orgDirectorySummary").textContent = rows.length === state.people.length
+      ? `${rows.length} ${noun} in your viewing scope`
+      : `${rows.length} of ${state.people.length} employees shown`;
     $("#orgEmployeeRows").innerHTML = rows.map((person) => `<tr>
       <td><strong>${esc(person.full_name)}</strong><div class="muted">${esc(person.emp_code)}</div></td>
       <td>${esc(person.job_title || "—")}<div class="muted">System role: ${esc(person.role)}</div></td>
@@ -78,13 +116,13 @@
       || '<div class="empty">No hierarchy is available in your scope.</div>';
   }
 
-  async function showPath(employeeId) {
+  async function showPath(employeeId, navigate = true) {
     try {
       const result = await request(`org_path&employeeId=${encodeURIComponent(employeeId)}`);
       const selected = result.path[0];
-      $("#orgPathCaption").textContent = selected ? `${selected.full_name} to the top` : "No reporting path";
+      $("#orgPathCaption").textContent = selected ? `Reporting path for ${selected.full_name}` : "No reporting path";
       $("#orgPath").innerHTML = result.path.map((person, index) => `<div class="org-path-node">
-        <span>${index === 0 ? "Employee" : `Level ${index}`}</span>
+        <span>${index === 0 ? "Selected employee" : index === 1 ? "Direct manager" : `Manager level ${index}`}</span>
         <strong>${esc(person.full_name)}</strong>
         <small>${esc(person.job_title || "—")} · ${esc(person.department_name)}</small>
       </div>`).join('<div class="org-path-arrow" aria-hidden="true">↑</div>');
@@ -98,13 +136,16 @@
           $("#membershipTeam").value = person.team_id == null ? "" : String(person.team_id);
         }
       }
+      if (navigate) showPage("reporting");
     } catch (error) { message(error.message, true); }
   }
 
   function renderManagement() {
     const permissions = new Set(state.user.permissions || []);
     if (!permissions.has("org.structure.manage")) {
-      $("#orgManagePanel").hidden = true;
+      $("#org-page-management").hidden = true;
+      document.querySelector('[data-org-page="management"]')?.setAttribute("hidden", "");
+      if (state.currentPage === "management") showPage("directory");
       return;
     }
     ["#managerEmployee", "#managerAccount", "#membershipEmployee"].forEach((id) => { $(id).innerHTML = optionList(); });
@@ -149,6 +190,20 @@
   }
 
   function bindEvents() {
+    document.querySelectorAll("[data-org-page]").forEach((button) => {
+      button.addEventListener("click", () => showPage(button.dataset.orgPage));
+    });
+    document.querySelectorAll("[data-org-tab]").forEach((button) => {
+      button.addEventListener("click", () => showManagementTab(button.dataset.orgTab));
+    });
+    $("#orgClearFilters").addEventListener("click", () => {
+      $("#orgSearch").value = "";
+      $("#orgDepartmentFilter").value = "";
+      $("#orgTeamFilter").innerHTML = '<option value="">All teams</option>' + teamOptions(null, false);
+      $("#orgTeamFilter").value = "";
+      renderDirectory();
+      $("#orgSearch").focus();
+    });
     $("#orgSearch").addEventListener("input", renderDirectory);
     $("#orgDepartmentFilter").addEventListener("change", () => {
       $("#orgTeamFilter").innerHTML = '<option value="">All teams</option>' + teamOptions($("#orgDepartmentFilter").value, false);
@@ -157,7 +212,10 @@
     $("#orgTeamFilter").addEventListener("change", renderDirectory);
     document.addEventListener("click", async (event) => {
       const pathButton = event.target.closest("[data-view-path]");
-      if (pathButton) showPath(pathButton.dataset.viewPath);
+      if (pathButton) {
+        await showPath(pathButton.dataset.viewPath);
+        return;
+      }
       const departmentButton = event.target.closest("[data-edit-department]");
       if (departmentButton) {
         const item = state.departments.find((x) => Number(x.id) === Number(departmentButton.dataset.editDepartment));
@@ -212,11 +270,18 @@
       const me = await request("me");
       state.user = me.user;
       window.currentCsrfToken = me.csrfToken;
-      $("#backToDashboard").href = state.user.dashboard_path || "index.html";
+      const spaces = state.user.workspaces || [];
+      let savedWorkspace = "";
+      try { savedWorkspace = localStorage.getItem(`pppm.workspace.${state.user.id}`) || ""; } catch (_) {}
+      const preferredWorkspace = spaces.find((space) => space.key === savedWorkspace);
+      $("#backToDashboard").href = preferredWorkspace?.path || state.user.dashboard_path || "index.html";
+      $("#backToDashboard").hidden = spaces.length > 1;
       $("#managerEffectiveDate").value = new Date().toISOString().slice(0, 10);
       bindEvents();
       await reload();
-      await showPath(state.user.id);
+      await showPath(state.user.id, false);
+      const initialPage = location.hash.slice(1);
+      showPage(initialPage || "directory", false);
     } catch (error) { message(error.message, true); }
   }
 
