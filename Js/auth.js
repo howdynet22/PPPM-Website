@@ -257,12 +257,15 @@
       target?.insertAdjacentElement('afterend', host);
     }
     host.removeAttribute('hidden');
+    let selectedWorkspace=workspace;
+    if(!selectedWorkspace){try{selectedWorkspace=localStorage.getItem('pppm.workspace.'+user.id)||'';}catch(_){}}
+    if(!spaces.some(space=>space.key===selectedWorkspace))selectedWorkspace=spaces[0]?.key||'';
     const label = document.createElement('label'); label.className='workspace-switcher';
     label.textContent='Workspace';
     const select = document.createElement('select'); select.setAttribute('aria-label','Workspace');
     for (const space of spaces) {
       const option=document.createElement('option'); option.value=space.key; option.textContent=space.label;
-      option.selected=space.key===workspace; select.append(option);
+      option.selected=space.key===selectedWorkspace; select.append(option);
     }
     select.onchange=()=>{
       const selected=spaces.find(s=>s.key===select.value);
