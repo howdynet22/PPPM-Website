@@ -3,7 +3,7 @@
 ## Current scope
 
 This increment includes login/authentication, the database-backed Manager
-dashboard, an employee workspace and a permission-scoped organization hierarchy.
+dashboard, a personal workspace and a permission-scoped organization hierarchy.
 See README.md for current setup and demo instructions.
 
 ## Included
@@ -46,8 +46,8 @@ manager links.
 ## Demo credentials and reporting examples
 
 See `users.txt` for the 12 fictional accounts and `README.md` for the focused demo.
-All demo passwords start as `password123`. Managers and HR staff also have personal
-employee workspaces. Job titles do not grant permissions.
+All demo passwords start as `password123`. Managers and HR staff also have
+personal workspaces. Job titles do not grant permissions.
 
 ## Required folder layout
 

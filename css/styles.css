@@ -1,31 +1,49 @@
-/* Employee workspace and shared goal details. HR/admin page layouts stay unchanged. */
-.employee-workspace { background:#f5f7fb; color:#17233b; line-height:1.5; }
-.employee-shell { max-width:1160px; margin:auto; padding:32px 24px 110px; }
-.employee-workspace .auth-controls { position:static; display:flex; justify-content:flex-end; margin-bottom:20px; }
-.employee-workspace .topbar,.employee-workspace .section-head,.work-dialog .section-head { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:18px; }
-.employee-workspace h1 { font-size:30px; letter-spacing:-.7px; }
-.employee-workspace h2 { font-size:21px; margin:12px 0; }
-.employee-workspace h3,.work-dialog h3 { font-size:17px; }
-.employee-workspace .muted,.work-dialog .muted { color:#64748b; font-size:13px; }
-.employee-workspace .card { background:white; border:1px solid #e1e6ef; border-radius:12px; padding:24px; margin:18px 0; }
-.employee-kpis { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
-.employee-workspace .kpi { display:flex; flex-direction:column; gap:8px; }
-.employee-workspace .kpi .value { font-size:28px; }
-.employee-workspace .kpi .label { color:#64748b; font-size:13px; }
-.employee-workspace a { color:#2858ad; }
-.employee-workspace .btn,.work-dialog .btn { display:inline-block; border:1px solid #cbd5e1; background:white; color:#203454; border-radius:7px; padding:9px 14px; font-size:13px; cursor:pointer; text-decoration:none; white-space:nowrap; }
-.employee-workspace .btn.primary,.work-dialog .btn.primary { background:#2858ad; border-color:#2858ad; color:white; }
-.employee-workspace .btn.small,.work-dialog .btn.small { padding:7px 10px; }
-.employee-workspace button:disabled,.work-dialog button:disabled { opacity:.6; cursor:wait; }
-.employee-workspace .status,.work-dialog .status { display:inline-block; background:#eaf0fa; color:#304d7b; border-radius:20px; padding:3px 9px; font-size:12px; }
-.employee-workspace .status.red,.work-dialog .status.red { background:#fee8e8; color:#9b2525; }
-.employee-workspace .status.amber,.work-dialog .status.amber { background:#fff1d6; color:#855911; }
-.workspace-section { scroll-margin-top:24px; margin-top:32px; }
-.workspace-tabs { display:flex; gap:24px; padding:16px 0; border-bottom:1px solid #dce3ee; flex-wrap:wrap; }
-.workspace-tabs a { font-size:14px; text-decoration:none; font-weight:600; }
+/* Personal workspace and shared goal details. */
+.personal-dashboard-page {
+  background: #f5f7fb;
+  color: #17233b;
+  line-height: 1.5;
+}
+.personal-dashboard-page .personal-identity {
+  display: grid;
+  justify-items: end;
+  line-height: 1.3;
+}
+.personal-dashboard-page .personal-identity span {
+  color: #667085;
+  font-size: 12px;
+}
+.personal-dashboard-page #employeeMessage:not(:empty) {
+  padding: 12px;
+  background: #fff5d6;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.personal-dashboard-page .employee-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.personal-dashboard-page .kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.personal-dashboard-page h2 {
+  font-size: 18px;
+}
+.personal-dashboard-page h3,
+.work-dialog h3 {
+  font-size: 16px;
+}
+.personal-dashboard-page .plan-card {
+  margin-bottom: 16px;
+}
+.workspace-section {
+  scroll-margin-top: 24px;
+  margin-top: 28px;
+}
 .personal-item { border-top:1px solid #e7ebf2; padding:20px 0; }
 .personal-item:last-child { padding-bottom:0; }
-.employee-workspace .empty { padding:24px; color:#64748b; background:#f0f3f8; border-radius:8px; }
+.personal-dashboard-page .empty { padding:24px; color:#64748b; background:#f0f3f8; border-radius:8px; }
 .work-progress { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:12px 0; font-size:13px; }
 .work-progress progress { width:130px; height:9px; accent-color:#2858ad; }
 .work-dialog { position:fixed; inset:0; margin:auto; width:min(760px,calc(100vw - 32px)); max-height:90vh; overflow:auto; padding:28px; border:1px solid #dce3ee; border-radius:14px; color:#17233b; line-height:1.5; }
@@ -46,20 +64,20 @@
 .workspace-form { display:grid; gap:18px; }
 .workspace-form fieldset { border:1px solid #e2e8f0; border-radius:8px; padding:16px; display:grid; gap:12px; }
 .workspace-form legend { padding:0 6px; font-weight:600; }
-.employee-workspace .notice,.work-dialog .notice { padding:12px; background:#eef3fb; border-radius:7px; font-size:14px; }
+.personal-dashboard-page .notice,.work-dialog .notice { padding:12px; background:#eef3fb; border-radius:7px; font-size:14px; }
 .work-dialog .notice.warn { background:#fff1d6; }
 .workspace-switcher { margin:10px 0 20px; min-width:160px; }
-.sidebar #workspaceControls { margin:0 16px; }
+.sidebar #workspaceControls { margin:0 12px 4px; }
 .sidebar .workspace-switcher { color:inherit; }
-:is(.work-dialog,.employee-workspace,.workspace-switcher) :focus-visible { outline:3px solid #75a5f8; outline-offset:3px; }
+:is(.work-dialog,.personal-dashboard-page,.workspace-switcher) :focus-visible { outline:3px solid #75a5f8; outline-offset:3px; }
 #managerSync:not(:empty) { padding:12px; background:#fff1d6; margin-bottom:12px; }
 @media (max-width:640px) {
- .employee-shell { padding:22px 16px 100px; }
  .employee-kpis { grid-template-columns:1fr; gap:0; }
- .employee-workspace .topbar,.employee-workspace .section-head,.step-controls { flex-direction:column; align-items:stretch; }
- .employee-workspace .card,.work-dialog { padding:18px; }
+ .personal-dashboard-page .section-head,.step-controls { flex-direction:column; align-items:stretch; }
+ .personal-dashboard-page .personal-identity { justify-items:start; }
+ .work-dialog { padding:18px; }
  .work-dialog .work-step-meta { align-items:start; }
- .employee-workspace .kpi { margin:8px 0; }
+ .personal-dashboard-page .kpi { margin:8px 0; }
 }
 
 /* Shared reset and colour variables */
@@ -516,6 +534,7 @@ button {
   padding: 14px 12px 7px;
 }
 .nav-btn {
+  display: block;
   width: 100%;
   border: 0;
   background: transparent;
@@ -525,6 +544,8 @@ button {
   border-radius: 8px;
   margin: 2px 0;
   font-size: 14px;
+  line-height: 1.25;
+  text-decoration: none;
 }
 .nav-btn:hover,
 .nav-btn.active {
@@ -577,12 +598,17 @@ button {
 
 /* Shared manager buttons and page visibility */
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--line);
   background: #fff;
   color: var(--text);
   padding: 9px 13px;
   border-radius: 7px;
   font-size: 13px;
+  line-height: 1.25;
+  text-decoration: none;
 }
 .btn:hover {
   background: #f8fafc;

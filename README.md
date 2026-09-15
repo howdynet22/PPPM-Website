@@ -1,17 +1,17 @@
-# PPPM — manager / employee update
+# PPPM — manager / personal workspace update
 
-Based on `actionable-goal-steps` (8936ccc). This update implements the employee
+Based on `actionable-goal-steps` (8936ccc). This update implements the personal
 workspace and updates the manager experience. HR and system administrator
 screens are maintained separately by a teammate; those HTML screens are unchanged.
 
 ## Development and workspaces
 
-Managers and HR staff keep their existing account and can choose **Employee**
+Managers and HR staff keep their existing account and can choose **Personal**
 from the workspace selector to see their own goals, PDPs, PIPs and feedback.
 The selected workspace is remembered per user on this browser. Available
 workspaces come from database permissions, not job titles or the selected UI.
 The CEO demo account uses the existing leadership destination and has no
-employee workspace.
+personal workspace.
 
 Open any development goal to update its steps to **Not started**, **In progress**,
 **Blocked** or **Completed**. Notes are optional. Mark complete and Reopen provide
@@ -37,7 +37,7 @@ an error; they do not show an unsaved completion as persisted.
 
 ## Access boundaries
 
-- Employees access their own personal records.
+- People using the Personal workspace access only their own records.
 - Managers create records for current direct reports and retain access to records
   explicitly assigned to them. Descendant directory access does not grant access
   to descendants' private PDP, review or PIP records.

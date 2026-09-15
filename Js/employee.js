@@ -17,7 +17,7 @@
     content.innerHTML=`<div class="grid kpis employee-kpis">
       <div class="card kpi"><span class="label">Active goals</span><strong class="value">${activeGoals}</strong></div>
       <div class="card kpi"><span class="label">Development steps</span><strong class="value">${complete}/${allSteps.length}</strong><span class="muted">Completed steps</span></div>
-      <div class="card kpi"><span class="label">Feedback to submit</span><strong class="value">${pending}</strong><a href="#feedback">View requests</a></div></div>
+      <div class="card kpi"><span class="label">Feedback to submit</span><strong class="value">${pending}</strong><a class="btn small" href="#feedback">View requests</a></div></div>
       <section id="development" class="workspace-section"><div class="section-head"><div><h2>My development plans</h2><p class="muted">Open a goal to record progress, blockers or completion.</p></div><button class="btn primary" data-create="pdp">+ Development goal</button></div>
       ${data.plans.map(p=>`<article class="card plan-card"><div class="section-head"><div><h3>${esc(p.summary || 'Development plan')}</h3><p class="muted">Set by ${esc(p.owner)}</p></div>${p.status==='cancelled'?'<span class="status">Cancelled</span>':''}</div>${progress(p.progress)}<div class="personal-items">${p.actions.map(itemCard).join('') || empty('This plan has no goals yet.')}</div></article>`).join('') || empty('No development plan yet. Add a goal to start your plan.')}
       <div class="section-head"><h2>My goals</h2><button class="btn" data-create="goal">+ Goal</button></div><div class="card">${data.goals.map(itemCard).join('') || empty('No personal goals yet.')}</div></section>
@@ -80,4 +80,10 @@
   window.addEventListener('focus',refresh);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
   setInterval(refresh,15000);
+  function updatePersonalNavigation() {
+    const current=location.hash || '#development';
+    document.querySelectorAll('.sidebar .nav-btn[href^="#"]').forEach(link=>link.classList.toggle('active',link.getAttribute('href')===current));
+  }
+  window.addEventListener('hashchange',updatePersonalNavigation);
+  updatePersonalNavigation();
 })();

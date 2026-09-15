@@ -1769,7 +1769,6 @@
           ${pipAction}
           ${reviewAction}
           ${reportAction}
-          <a class="btn" href="employee-dashboard.html">Employee workspace</a>
         </div>`,
         '<button class="btn" onclick="closeModal()">Close</button>',
       );

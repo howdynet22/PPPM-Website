@@ -13,6 +13,6 @@ drew@demo.pppm.test    Drew Parker     Support Specialist / employee
 blair@demo.pppm.test   Blair Hayes     Project Coordinator / employee
 quinn@demo.pppm.test   Quinn River     Business Analyst / employee
 
-Everyone except Avery also has an employee workspace and personal development plan.
+Everyone except Avery also has a personal workspace and personal development plan.
 Seed: php scripts/demo.php seed
 Recreate only registered demo records: php scripts/demo.php reset

@@ -6,7 +6,7 @@ function available_workspaces(array $user): array
     $permissions = $user['permissions'] ?? permissions_for_role($user['role']);
     $spaces = [];
     foreach ([
-        'employee' => ['employee.dashboard', 'Employee', 'employee-dashboard.html'],
+        'employee' => ['employee.dashboard', 'Personal', 'employee-dashboard.html'],
         'manager' => ['manager.dashboard', 'Manager', 'manager-dashboard.html'],
         'hr' => ['hr.dashboard', 'HR', 'hr-dashboard.html'],
         'executive' => ['admin.dashboard', 'Executive', 'admin-dashboard.html'],

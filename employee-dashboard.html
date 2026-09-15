@@ -1,9 +1,59 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Employee workspace | P&D Tracker</title><link rel="stylesheet" href="css/styles.css"></head>
-<body class="employee-workspace"><main class="employee-shell">
-<header class="topbar"><div class="title"><p class="role">P&D TRACKER · Employee workspace</p><h1>My development</h1><p>Your goals, development plans and feedback in one place.</p></div><div id="workspaceControls"></div></header>
-<div class="section-head"><p><strong data-user-name></strong><br><span class="muted" data-user-role></span></p><a class="btn" href="org-structure.html">My reporting path</a></div>
-<nav class="workspace-tabs" aria-label="Personal sections"><a href="#development">Development</a><a href="#improvement">Improvement plans</a><a href="#feedback">Reviews & feedback</a></nav>
-<p id="employeeMessage" role="status" aria-live="polite">Loading your workspace…</p><div id="employeeContent" aria-busy="true"></div>
-</main><script src="Js/auth.js" data-workspace="employee"></script><script src="Js/work-items.js"></script><script src="Js/employee.js"></script></body></html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Personal Dashboard | Performance &amp; Development Tracker</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body class="manager-dashboard-page personal-dashboard-page">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">P&amp;D TRACKER<small>Personal workspace</small></div>
+        <div id="workspaceControls"></div>
+
+        <div class="nav-title">Personal</div>
+        <a class="nav-btn active" href="#development">Development</a>
+        <a class="nav-btn" href="#improvement">Improvement plans</a>
+        <a class="nav-btn" href="#feedback">Reviews &amp; Feedback</a>
+        <a
+          class="nav-btn"
+          href="org-structure.html"
+          data-permission="org.structure.view"
+        >
+          Reporting path
+        </a>
+
+        <div class="sidebar-bottom">
+          <button class="nav-btn" id="logoutBtn">Sign out</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <p id="employeeMessage" role="status" aria-live="polite">
+          Loading your personal workspace…
+        </p>
+
+        <header class="topbar">
+          <div class="title">
+            <h1>Personal Dashboard</h1>
+            <p>Your goals, development plans and feedback in one place.</p>
+          </div>
+          <div class="top-actions">
+            <div class="personal-identity">
+              <strong data-user-name></strong>
+              <span data-user-role></span>
+            </div>
+            <div class="avatar" data-user-initials>U</div>
+          </div>
+        </header>
+
+        <div id="employeeContent" aria-busy="true"></div>
+      </main>
+    </div>
+
+    <script src="Js/auth.js" data-workspace="employee"></script>
+    <script src="Js/work-items.js"></script>
+    <script src="Js/employee.js"></script>
+  </body>
+</html>

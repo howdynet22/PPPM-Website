@@ -245,13 +245,18 @@
 
   function addWorkspaceSwitcher(user) {
     const spaces = user.workspaces || [];
-    if (!spaces.length) return;
     let host = document.getElementById('workspaceControls');
+    if (spaces.length <= 1) {
+      host?.replaceChildren();
+      host?.setAttribute('hidden', '');
+      return;
+    }
     if (!host) {
       host = document.createElement('div'); host.id = 'workspaceControls';
       const target = document.querySelector('.sidebar .brand, main .card, main');
       target?.insertAdjacentElement('afterend', host);
     }
+    host.removeAttribute('hidden');
     const label = document.createElement('label'); label.className='workspace-switcher';
     label.textContent='Workspace';
     const select = document.createElement('select'); select.setAttribute('aria-label','Workspace');
