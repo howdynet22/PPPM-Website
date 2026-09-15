@@ -285,9 +285,14 @@
       const spaces = state.user.workspaces || [];
       let savedWorkspace = "";
       try { savedWorkspace = localStorage.getItem(`pppm.workspace.${state.user.id}`) || ""; } catch (_) {}
-      const preferredWorkspace = spaces.find((space) => space.key === savedWorkspace);
-      $("#backToDashboard").href = preferredWorkspace?.path || state.user.dashboard_path || "index.html";
-      $("#backToDashboard").hidden = spaces.length > 1;
+      const preferredWorkspace = spaces.find((space) => space.key === savedWorkspace)
+        || spaces.find((space) => space.path === state.user.dashboard_path);
+      const backLink = $("#backToDashboard");
+      backLink.href = preferredWorkspace?.path || state.user.dashboard_path || "index.html";
+      backLink.textContent = preferredWorkspace?.label
+        ? `← Back to ${preferredWorkspace.label} dashboard`
+        : "← Back to dashboard";
+      backLink.hidden = false;
       $("#managerEffectiveDate").value = new Date().toISOString().slice(0, 10);
       bindEvents();
       await reload();
