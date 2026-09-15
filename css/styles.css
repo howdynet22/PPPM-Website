@@ -595,6 +595,11 @@ button {
   place-items: center;
   font-weight: 700;
 }
+.profile-host {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 18px;
+}
 .profile-badge {
   display: flex;
   align-items: center;
