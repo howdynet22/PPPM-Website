@@ -233,8 +233,15 @@
   }
 
   function ensureProfileBadge(user) {
-    const host = document.querySelector(".top-actions, [data-profile-host]");
-    if (!host) return;
+    let host = document.querySelector(".top-actions, [data-profile-host]");
+    if (!host) {
+      const main = document.querySelector("main");
+      if (!main) return;
+      host = document.createElement("div");
+      host.className = "profile-host";
+      host.setAttribute("data-profile-host", "");
+      main.prepend(host);
+    }
     let badge = host.querySelector(".profile-badge");
     if (!badge) {
       badge = document.createElement("div");
