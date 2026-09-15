@@ -218,15 +218,73 @@
     }
   }
 
+  // Use one profile badge on every dashboard that provides a top-actions host.
+  function permissionLevel(user) {
+    const labels = {
+      employee: "Personal",
+      manager: "Manager",
+      hr: "HR",
+      admin: "System Administrator",
+      system_admin: "System Administrator",
+      leadership: "Leadership",
+    };
+    const key = String(user.role || "").toLowerCase();
+    return labels[key] || user.role_name || user.role || "User";
+  }
+
+  function ensureProfileBadge(user) {
+    const host = document.querySelector(".top-actions, [data-profile-host]");
+    if (!host) return;
+    let badge = host.querySelector(".profile-badge");
+    if (!badge) {
+      badge = document.createElement("div");
+      badge.className = "profile-badge";
+      badge.setAttribute("role", "group");
+      badge.innerHTML = `
+        <div class="profile-badge-info">
+          <strong class="profile-name" data-user-name></strong>
+          <span class="profile-job-title" data-user-job-title></span>
+          <span class="profile-access">
+            <span class="profile-access-label">Access</span>
+            <strong data-user-access></strong>
+          </span>
+        </div>`;
+      const legacyIdentity = host.querySelector(".personal-identity");
+      legacyIdentity?.remove();
+      let avatar = host.querySelector(":scope > .avatar");
+      if (!avatar) {
+        avatar = document.createElement("div");
+        avatar.className = "avatar";
+        avatar.setAttribute("data-user-initials", "");
+      }
+      badge.appendChild(avatar);
+      host.appendChild(badge);
+    }
+    const name = user.full_name || "Signed-in user";
+    const jobTitle = user.job_title || "Job title not set";
+    const access = permissionLevel(user);
+    badge.querySelector("[data-user-name]").textContent = name;
+    badge.querySelector("[data-user-job-title]").textContent = jobTitle;
+    badge.querySelector("[data-user-access]").textContent = access;
+    badge.setAttribute("aria-label", `${name}, ${jobTitle}, ${access} access`);
+  }
+
   // Fill user details and hide controls that the role cannot use.
   function applyUser(user) {
     currentUser = user;
+    ensureProfileBadge(user);
     document
       .querySelectorAll("[data-user-name]")
       .forEach((el) => (el.textContent = user.full_name || ""));
     document
       .querySelectorAll("[data-user-role]")
       .forEach((el) => (el.textContent = user.role_name || user.role || ""));
+    document
+      .querySelectorAll("[data-user-job-title]")
+      .forEach((el) => (el.textContent = user.job_title || "Job title not set"));
+    document
+      .querySelectorAll("[data-user-access]")
+      .forEach((el) => (el.textContent = permissionLevel(user)));
     document
       .querySelectorAll("[data-user-email]")
       .forEach((el) => (el.textContent = user.email || ""));
