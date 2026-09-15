@@ -433,35 +433,25 @@
     $("#peerTable").innerHTML =
       data.peerNominations
         .map((nomination) => {
-          const actions =
-            nomination.status === "pending"
-              ? `<button
-                  class="btn small primary"
-                  onclick="decidePeer(${nomination.id}, 'approved')"
-                >
-                  Approve
-                </button>
-                <button
-                  class="btn small danger"
-                  onclick="decidePeer(${nomination.id}, 'rejected')"
-                >
-                  Reject
-                </button>`
-              : '<span class="muted">Decision recorded</span>';
+          const escalation = nomination.escalationStatus
+            ? `<div class="muted">HR: ${esc(titleStatus(nomination.escalationStatus))}</div>`
+            : "";
+          const buttonLabel = nomination.status === "pending" ? "Review" : "View details";
 
           return `<tr>
-            <td>${esc(nomination.employee)}</td>
-            <td>${esc(nomination.peer)}</td>
+            <td>${esc(nomination.employee)}<div class="muted">${esc(nomination.cycle)}</div></td>
+            <td>${esc(nomination.peer)}<div class="muted">${esc(nomination.peerJobTitle || "Job title not set")}</div></td>
+            <td>${esc(nomination.sharedWork)}</td>
             <td>
               <span class="status ${statusClass(nomination.status)}">
-                ${esc(nomination.status)}
-              </span>
+                ${esc(titleStatus(nomination.status))}
+              </span>${escalation}
             </td>
-            <td>${actions}</td>
+            <td><button class="btn small ${nomination.status === "pending" ? "primary" : ""}" onclick="openPeerNomination(${nomination.id})">${buttonLabel}</button></td>
           </tr>`;
         })
         .join("") ||
-      '<tr><td colspan="4" class="empty">No peer nominations.</td></tr>';
+      '<tr><td colspan="5" class="empty">No peer nominations.</td></tr>';
 
     $("#feedbackCards").innerHTML =
       data.employees.filter((employee) => employee.participantId)
@@ -879,13 +869,58 @@
     }
   }
 
-  // Approve or reject a proposed peer reviewer.
-  async function decidePeer(id, status) {
+  // Review the employee's evidence before deciding a peer nomination.
+  function openPeerNomination(id) {
+    const nomination = data.peerNominations.find((item) => Number(item.id) === Number(id));
+    if (!nomination) return toast("Peer nomination not found.");
+    const decision = nomination.status === "pending"
+      ? `<div class="form-grid section-spacing">
+          <div class="field">
+            <label for="peerDecisionStatus">Decision</label>
+            <select id="peerDecisionStatus">
+              <option value="approved">Approve reviewer</option>
+              <option value="rejected">Reject nomination</option>
+            </select>
+          </div>
+          <div class="field full">
+            <label for="peerDecisionReason">Decision reason</label>
+            <textarea id="peerDecisionReason" maxlength="1000" placeholder="Required when rejecting. Explain the conflict, lack of direct knowledge, or other reason."></textarea>
+            <small class="muted">A rejection requires at least 15 characters. Approval notes are optional.</small>
+          </div>
+        </div>`
+      : `<div class="notice section-spacing"><strong>Manager decision</strong><p>${esc(nomination.decisionReason || "No additional decision note was recorded.")}</p></div>`;
+    const escalation = nomination.escalationStatus
+      ? `<div class="notice warn section-spacing"><strong>Forwarded to HR</strong><p>${esc(nomination.escalationReason || "")}</p><p class="muted">Status: ${esc(titleStatus(nomination.escalationStatus))}</p></div>`
+      : "";
+    openModal(
+      `Peer nomination — ${nomination.employee}`,
+      `<div class="detail-grid">
+        <div><span class="muted">Review cycle</span><strong>${esc(nomination.cycle)}</strong></div>
+        <div><span class="muted">Proposed reviewer</span><strong>${esc(nomination.peer)}</strong><span>${esc(nomination.peerJobTitle || "Job title not set")}</span></div>
+        <div class="full"><span class="muted">Shared project or deliverable</span><strong>${esc(nomination.sharedWork)}</strong></div>
+        <div class="full"><span class="muted">Work completed together</span><p>${esc(nomination.collaborationDetails)}</p></div>
+        <div class="full"><span class="muted">Why this peer can provide an informed review</span><p>${esc(nomination.reviewerJustification)}</p></div>
+        <div class="full"><span class="status ${nomination.directKnowledgeConfirmed ? "green" : "amber"}">${nomination.directKnowledgeConfirmed ? "Employee confirmed first-hand observation" : "First-hand observation not confirmed"}</span></div>
+      </div>${decision}${escalation}`,
+      nomination.status === "pending"
+        ? `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="decidePeer(${nomination.id})">Save decision</button>`
+        : '<button class="btn" onclick="closeModal()">Close</button>',
+    );
+  }
+
+  // Approve or reject a proposed peer reviewer and persist the manager reason.
+  async function decidePeer(id) {
+    const status = $("#peerDecisionStatus")?.value || "";
+    const reason = $("#peerDecisionReason")?.value.trim() || "";
+    if (status === "rejected" && reason.length < 15) {
+      return toast("Explain the rejection using at least 15 characters.");
+    }
     try {
       await request("decide_peer", {
         method: "POST",
-        body: JSON.stringify({ id, status }),
+        body: JSON.stringify({ id, status, reason }),
       });
+      closeModal();
       await refresh();
       toast(`Peer nomination ${status}.`);
     } catch (err) {
@@ -1819,6 +1854,7 @@
   globalThis.openEmployee = openEmployee;
   globalThis.openReview = openReview;
   globalThis.submitReview = submitReview;
+  globalThis.openPeerNomination = openPeerNomination;
   globalThis.decidePeer = decidePeer;
   globalThis.newGoal = newGoal;
   globalThis.saveGoal = saveGoal;

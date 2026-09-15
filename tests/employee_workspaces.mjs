@@ -13,6 +13,7 @@ class Client {
   async login(name){this.user=(await this.call('login',{email:`${name}@demo.pppm.test`,password:'password123'})).user;return this;}
 }
 const alex=await new Client().login('alex'),casey=await new Client().login('casey'),jordan=await new Client().login('jordan'),morgan=await new Client().login('morgan');
+const blair=await new Client().login('blair'),quinn=await new Client().login('quinn');
 const hr=await new Client().login('taylor'),hrLead=await new Client().login('riley'),coordinator=await new Client().login('sam'),ceo=await new Client().login('avery');
 assert.deepEqual(casey.user.workspaces.map(w=>w.key),['employee','manager']);
 assert.deepEqual(hr.user.workspaces.map(w=>w.key),['employee','hr']);
@@ -22,6 +23,44 @@ await alex.call('dashboard',null,403);
 await ceo.call('workspace&scope=employee',null,403);
 let own=(await alex.call('workspace&scope=employee')).data;
 assert.equal(own.plans.length,1);assert.equal(own.pips.length,0);
+assert(own.nominations.some(n=>n.status==='approved'));
+assert(own.nominations.some(n=>n.status==='rejected'&&n.decisionReason));
+const nominationCycle=own.nominationOptions.find(option=>option.peers.some(peer=>peer.name==='Blair Hayes'));
+assert(nominationCycle,'Expected an active nomination cycle with Blair as an eligible peer');
+await alex.call('create_peer_nomination',{participantId:nominationCycle.participantId,peerId:blair.user.id,sharedWork:'Short',collaborationDetails:'Too short',reviewerJustification:'Too short',directKnowledgeConfirmed:true},422);
+const rejectedNomination=await alex.call('create_peer_nomination',{
+  participantId:nominationCycle.participantId,peerId:blair.user.id,sharedWork:'Cross-team release planning',
+  collaborationDetails:'Blair and I planned the release handover, reviewed dependencies and resolved delivery risks together.',
+  reviewerJustification:'Blair directly observed my communication, collaboration and follow-through across the shared release work.',
+  directKnowledgeConfirmed:true,
+});
+await alex.call('decide_peer',{id:rejectedNomination.id,status:'rejected',reason:'No'},403);
+await casey.call('decide_peer',{id:rejectedNomination.id,status:'rejected',reason:''},422);
+await casey.call('decide_peer',{id:rejectedNomination.id,status:'rejected',reason:'The collaboration did not cover enough of the review period.'});
+own=(await alex.call('workspace&scope=employee')).data;
+const rejected=own.nominations.find(n=>Number(n.id)===Number(rejectedNomination.id));
+assert.equal(rejected.status,'rejected');assert.match(rejected.decisionReason,/review period/);
+await alex.call('escalate_peer_nomination',{id:rejectedNomination.id,reason:'Too short'},422);
+await alex.call('escalate_peer_nomination',{id:rejectedNomination.id,reason:'Blair observed the complete release planning work and can provide direct evidence that should be considered.'});
+await alex.call('escalate_peer_nomination',{id:rejectedNomination.id,reason:'This second escalation must not be accepted by the system.'},409);
+own=(await alex.call('workspace&scope=employee')).data;
+assert.equal(own.nominations.find(n=>Number(n.id)===Number(rejectedNomination.id)).escalationStatus,'pending_hr');
+const approvalCycle=own.nominationOptions.find(option=>option.peers.some(peer=>peer.name==='Quinn River'));
+const approvedNomination=await alex.call('create_peer_nomination',{
+  participantId:approvalCycle.participantId,peerId:quinn.user.id,sharedWork:'Onboarding guide review',
+  collaborationDetails:'Quinn reviewed the guide structure, checked the process assumptions and tested the final handover instructions.',
+  reviewerJustification:'Quinn directly observed how I incorporated feedback and communicated changes during the shared review.',
+  directKnowledgeConfirmed:true,
+});
+await casey.call('decide_peer',{id:approvedNomination.id,status:'approved',reason:'The shared work provides sufficient direct evidence.'});
+const quinnRequests=(await quinn.call('workspace&scope=employee')).data.requests;
+assert(quinnRequests.some(request=>request.type==='peer'&&request.employee==='Alex Morgan'));
+await alex.call('create_peer_nomination',{
+  participantId:approvalCycle.participantId,peerId:quinn.user.id,sharedWork:'Duplicate onboarding review',
+  collaborationDetails:'This duplicate nomination repeats the same shared work and should not create another database record.',
+  reviewerJustification:'The same reviewer is already assigned and the unique review relationship must be preserved.',
+  directKnowledgeConfirmed:true,
+},409);
 const itemId=own.plans[0].actions[0].id;
 const getItem=async client=>(await client.call(`work_item&type=pdp_action&id=${itemId}`)).item;
 let item=await getItem(alex);
@@ -80,4 +119,4 @@ await alex.call('delete_work_step',{id:added.id});
 assert.equal((await alex.call(`work_item&type=pdp_action&id=${newGoal.id}`)).item.steps.length,2);
 await alex.call('create_pdp',{employeeId:Number(casey.user.id),title:'Invalid assignment',description:'No access',due:'2099-12-31',steps:['Test']},403);
 await ceo.call('create_pdp',{employeeId:Number(ceo.user.id),title:'Unavailable personal plan',description:'No employee workspace',due:'2099-12-31',steps:['Test']},403);
-console.log('PASS: workspace boundaries, all step transitions, timestamps, notes, conflicts, CSRF, plan aggregation, cross-session reads, HR ownership, anonymous/released results, feedback submission and creation.');
+console.log('PASS: workspace boundaries, peer nomination decisions and escalation, feedback request creation, all step transitions, timestamps, notes, conflicts, CSRF, plan aggregation, cross-session reads, HR ownership, anonymous/released results, feedback submission and creation.');

@@ -24,4 +24,6 @@ $pdo->prepare('DELETE FROM users WHERE id=?')->execute([$user]);
 $pdo->prepare('DELETE FROM departments WHERE id=?')->execute([$department]);
 check((int)$pdo->query('SELECT COUNT(*) FROM users')->fetchColumn()===12,'Unexpected users after reset');
 check((int)$pdo->query('SELECT COUNT(*) FROM pdps')->fetchColumn()===11,'Each non-CEO should have a personal plan');
-echo "PASS: reset removes only demo-owned records, preserves an unrelated user and goal, and seed is idempotent.\n";
+check((int)$pdo->query("SELECT COUNT(*) FROM peer_nominations pn JOIN review_participants rp ON rp.id=pn.participant_id JOIN users u ON u.id=rp.employee_id WHERE u.email='alex@demo.pppm.test'")->fetchColumn()===2,'Expected nomination decision examples');
+check((int)$pdo->query("SELECT COUNT(*) FROM peer_nomination_escalations pne JOIN peer_nominations pn ON pn.id=pne.nomination_id JOIN review_participants rp ON rp.id=pn.participant_id JOIN users u ON u.id=rp.employee_id WHERE u.email='alex@demo.pppm.test'")->fetchColumn()===0,'Demo reset should not seed an HR escalation for Alex');
+echo "PASS: reset removes only demo-owned records, preserves unrelated data, restores nomination examples, and seed is idempotent.\n";

@@ -30,6 +30,16 @@ The static review checklist has been removed. Assigned self/peer requests open
 real feedback forms; submitted forms are read-only. Employee results stay hidden
 until release, and anonymous aggregates still require the cycle's minimum peers.
 
+Personal users can nominate a peer during an open peer-review window. A valid
+nomination names the shared project or deliverable, gives at least 30 characters
+about the work completed together, gives at least 30 characters explaining what
+the peer directly observed, and confirms first-hand knowledge. The assigned
+manager reviews this evidence. Approving creates the peer's feedback request;
+rejecting requires a 15–1,000 character reason that the employee can see. An
+employee may forward one rejected decision to HR with a 30–2,000 character
+reason. The escalation is stored as `pending_hr`; resolution fields are reserved
+for the teammate's future HR workflow.
+
 Views reload after saves, on window focus, when a tab becomes visible, and every
 15 seconds while visible. Step dialogs also refresh when there is no unsaved draft.
 A version check rejects stale step saves. Failed saves retain the draft and show
@@ -93,11 +103,14 @@ reset by this code update.
 
 ## Upgrade the latest branch's existing database
 
-Back up the database and apply `migrations/003_employee_workspaces.sql` once
-to the selected database. Databases older than `actionable-goal-steps` must
-first apply migrations 001 and 002 in order. Migration 003 preserves users and
-records, adds step state/note/version fields, backfills completion states and
-adds workspace permissions. Use migrations for upgrades, not `schema.sql`.
+Back up the database and apply `migrations/003_employee_workspaces.sql`, then
+`migrations/004_peer_nomination_workflow.sql`, once each to the selected database.
+Databases older than `actionable-goal-steps` must first apply migrations 001 and
+002 in order. Migration 003 preserves users and records, adds step
+state/note/version fields, backfills completion states and adds workspace
+permissions. Migration 004 preserves existing nominations, adds required work
+evidence and decision fields, and creates the durable HR-escalation table. Use
+migrations for upgrades, not `schema.sql`.
 
 Environment settings remain `PPPM_DB_HOST`, `PPPM_DB_NAME`, `PPPM_DB_USER`,
 `PPPM_DB_PASS`, and `PPPM_APP_DEBUG` (development only).
@@ -110,8 +123,9 @@ Run checks against an isolated, freshly seeded test database:
   (in PowerShell set `$env:PPPM_TEST_URL` first). Tests change fictional records.
 - `php tests/demo_reset.php` with `PPPM_DB_NAME` containing `test`.
   Tests preservation of an unrelated user and goal, fixture count and idempotency.
-- Import `tests/organization_checks.sql` and `tests/actionable_steps_checks.sql`
-  into the database being checked; integrity queries should return no rows.
+- Import `tests/organization_checks.sql`, `tests/actionable_steps_checks.sql` and
+  `tests/peer_nomination_checks.sql` into the database being checked; integrity
+  queries should return no rows.
 - Lint PHP files with `php -l` and JavaScript files with `node --check`.
 
 Verified locally with PHP 8.2 / MariaDB: fresh installation, migration of all

@@ -365,15 +365,43 @@ CREATE TABLE peer_nominations (
   id INT AUTO_INCREMENT PRIMARY KEY,
   participant_id INT NOT NULL,
   peer_id INT NOT NULL,
+  shared_work VARCHAR(255) NOT NULL,
+  collaboration_details TEXT NOT NULL,
+  reviewer_justification TEXT NOT NULL,
+  direct_knowledge_confirmed TINYINT(1) NOT NULL DEFAULT 1,
   status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
-  nominated_by INT,
+  nominated_by INT NOT NULL,
   decided_by INT,
+  decision_reason TEXT NULL,
+  decided_at DATETIME NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_pn_part FOREIGN KEY (participant_id) REFERENCES review_participants (id),
   CONSTRAINT fk_pn_peer FOREIGN KEY (peer_id) REFERENCES users (id),
   CONSTRAINT fk_pn_nominator FOREIGN KEY (nominated_by) REFERENCES users (id),
   CONSTRAINT fk_pn_decider FOREIGN KEY (decided_by) REFERENCES users (id),
-  UNIQUE KEY uq_part_peer (participant_id, peer_id)
+  UNIQUE KEY uq_part_peer (participant_id, peer_id),
+  KEY idx_peer_nomination_status (status, created_at)
+);
+
+
+-- Employees may ask HR to review a manager's rejection. HR resolution is
+-- intentionally stored here for the future HR workspace implementation.
+CREATE TABLE peer_nomination_escalations (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nomination_id INT NOT NULL,
+  employee_id INT NOT NULL,
+  escalation_reason TEXT NOT NULL,
+  status ENUM('pending_hr', 'resolved_upheld', 'resolved_overturned') NOT NULL DEFAULT 'pending_hr',
+  escalated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  resolved_by INT NULL,
+  resolution_note TEXT NULL,
+  resolved_at DATETIME NULL,
+  CONSTRAINT fk_pne_nomination FOREIGN KEY (nomination_id) REFERENCES peer_nominations (id),
+  CONSTRAINT fk_pne_employee FOREIGN KEY (employee_id) REFERENCES users (id),
+  CONSTRAINT fk_pne_resolver FOREIGN KEY (resolved_by) REFERENCES users (id),
+  UNIQUE KEY uq_peer_nomination_escalation (nomination_id),
+  KEY idx_peer_escalation_status (status, escalated_at)
 );
 
 

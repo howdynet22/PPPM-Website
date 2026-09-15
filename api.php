@@ -11,7 +11,7 @@ require_once __DIR__ . "/workspaces.php";
 
 try {
     if (str_starts_with((string) $action, "org_")) { organization_api((string) $action); }
-    if (in_array($action, ["workspace", "work_item", "set_step_status", "submit_personal_feedback", "feedback_form"], true)) { workspace_api($action); }
+    if (in_array($action, ["workspace", "work_item", "set_step_status", "submit_personal_feedback", "feedback_form", "create_peer_nomination", "escalate_peer_nomination"], true)) { workspace_api($action); }
     switch ($action) {
         // Login functions.
         case "login":
@@ -362,10 +362,14 @@ try {
             unset($e);
 
             $stmt = $pdo->prepare(
-                "SELECT pn.id, pn.status, rp.employee_id, emp.full_name employee, pn.peer_id, " .
-                    "peer.full_name peer FROM peer_nominations pn JOIN review_participants rp ON " .
-                    "rp.id=pn.participant_id JOIN users emp ON emp.id=rp.employee_id JOIN users peer ON " .
-                    "peer.id=pn.peer_id WHERE rp.manager_id=? ORDER BY pn.created_at DESC",
+                "SELECT pn.id,pn.status,pn.shared_work,pn.collaboration_details,pn.reviewer_justification,pn.direct_knowledge_confirmed, " .
+                    "pn.decision_reason,pn.decided_at,pn.created_at,rc.name cycle,rp.employee_id, " .
+                    "emp.full_name employee,pn.peer_id,peer.full_name peer,peer.job_title peer_job_title, " .
+                    "pne.status escalation_status,pne.escalation_reason,pne.escalated_at " .
+                    "FROM peer_nominations pn JOIN review_participants rp ON rp.id=pn.participant_id " .
+                    "JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users emp ON emp.id=rp.employee_id " .
+                    "JOIN users peer ON peer.id=pn.peer_id LEFT JOIN peer_nomination_escalations pne ON " .
+                    "pne.nomination_id=pn.id WHERE rp.manager_id=? ORDER BY pn.created_at DESC",
             );
             $stmt->execute([$mid]);
             $peerNominations = array_map(
@@ -375,7 +379,19 @@ try {
                     "employee" => $r["employee"],
                     "peerId" => (int) $r["peer_id"],
                     "peer" => $r["peer"],
+                    "peerJobTitle" => $r["peer_job_title"],
+                    "cycle" => $r["cycle"],
+                    "sharedWork" => $r["shared_work"],
+                    "collaborationDetails" => $r["collaboration_details"],
+                    "reviewerJustification" => $r["reviewer_justification"],
+                    "directKnowledgeConfirmed" => (bool) $r["direct_knowledge_confirmed"],
                     "status" => $r["status"],
+                    "decisionReason" => $r["decision_reason"],
+                    "decidedAt" => $r["decided_at"],
+                    "createdAt" => $r["created_at"],
+                    "escalationStatus" => $r["escalation_status"],
+                    "escalationReason" => $r["escalation_reason"],
+                    "escalatedAt" => $r["escalated_at"],
                 ],
                 $stmt->fetchAll(),
             );
@@ -825,35 +841,69 @@ try {
             $in = input();
             $id = (int) ($in["id"] ?? 0);
             $status = $in["status"] ?? "";
+            $reason = trim((string) ($in["reason"] ?? ""));
             if (!in_array($status, ["approved", "rejected"], true)) {
                 json_response(
                     ["ok" => false, "error" => "Invalid peer decision"],
                     422,
                 );
             }
+            if (strlen($reason) > 1000 || ($status === "rejected" && strlen($reason) < 15)) {
+                json_response(
+                    ["ok" => false, "error" => "A rejection reason of 15 to 1,000 characters is required"],
+                    422,
+                );
+            }
             $pdo = db();
+            $pdo->beginTransaction();
             $stmt = $pdo->prepare(
-                "SELECT pn.id FROM peer_nominations pn JOIN review_participants rp ON " .
-                    "rp.id=pn.participant_id WHERE pn.id=? AND rp.manager_id=?",
+                "SELECT pn.id,pn.status,pn.participant_id,pn.peer_id,rp.status participant_status, " .
+                    "rc.status cycle_status,rc.peer_deadline FROM peer_nominations pn " .
+                    "JOIN review_participants rp ON rp.id=pn.participant_id " .
+                    "JOIN review_cycles rc ON rc.id=rp.cycle_id " .
+                    "WHERE pn.id=? AND rp.manager_id=? FOR UPDATE",
             );
             $stmt->execute([$id, $manager["id"]]);
-            if (!$stmt->fetch()) {
+            $nomination = $stmt->fetch();
+            if (!$nomination) {
+                $pdo->rollBack();
                 json_response(
                     ["ok" => false, "error" => "Nomination not found"],
                     404,
                 );
             }
+            if ($nomination["status"] !== "pending") {
+                $pdo->rollBack();
+                json_response(["ok" => false, "error" => "This nomination already has a decision"], 409);
+            }
+            if (in_array($nomination["participant_status"], ["manager_submitted", "released"], true)
+                || in_array($nomination["cycle_status"], ["released", "closed"], true)) {
+                $pdo->rollBack();
+                json_response(["ok" => false, "error" => "The review is no longer open for peer decisions"], 409);
+            }
+            if ($status === "approved" && $nomination["peer_deadline"] && $nomination["peer_deadline"] < date("Y-m-d")) {
+                $pdo->rollBack();
+                json_response(["ok" => false, "error" => "The peer feedback deadline has passed"], 409);
+            }
             $stmt = $pdo->prepare(
-                "UPDATE peer_nominations SET status=?, decided_by=? WHERE id=?",
+                "UPDATE peer_nominations SET status=?,decided_by=?,decision_reason=?,decided_at=NOW() WHERE id=?",
             );
-            $stmt->execute([$status, $manager["id"], $id]);
+            $stmt->execute([$status, $manager["id"], $reason !== "" ? $reason : null, $id]);
+            if ($status === "approved") {
+                $stmt = $pdo->prepare(
+                    "INSERT INTO feedback_requests(participant_id,respondent_id,type,status) VALUES(?,?,'peer','pending') " .
+                        "ON DUPLICATE KEY UPDATE id=id",
+                );
+                $stmt->execute([(int)$nomination["participant_id"], (int)$nomination["peer_id"]]);
+            }
             audit(
                 (int) $manager["id"],
                 strtoupper("PEER_" . $status),
                 "peer_nomination",
                 $id,
-                "Manager " . $status . " peer nomination",
+                "Manager " . $status . " peer nomination" . ($reason !== "" ? ": " . $reason : ""),
             );
+            $pdo->commit();
             json_response(["ok" => true]);
 
         // Goal creation.

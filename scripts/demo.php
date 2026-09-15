@@ -39,6 +39,7 @@ function demo_reset(): void
     // Personal records created while trying the demo also belong to these fixture accounts.
     $participants=demo_child_ids('review_participants','employee_id',$users);
     $requests=demo_child_ids('feedback_requests','participant_id',$participants);
+    $nominations=demo_child_ids('peer_nominations','participant_id',$participants);
     $plans=demo_child_ids('pdps','employee_id',$users);
     $actions=demo_child_ids('pdp_actions','pdp_id',$plans);
     $pips=demo_child_ids('pips','employee_id',$users);
@@ -46,6 +47,7 @@ function demo_reset(): void
     demo_delete('feedback_summary','request_id',$requests);
     demo_delete('feedback_ratings','request_id',$requests);
     demo_delete('feedback_requests','id',$requests);
+    demo_delete('peer_nomination_escalations','nomination_id',$nominations);
     demo_delete('peer_nominations','participant_id',$participants);
     demo_delete('action_updates','action_id',$actions);
     demo_delete('pdp_actions','id',$actions);
@@ -139,8 +141,23 @@ function seed_demo(): void
         $participant=demo_insert('review_participants',['cycle_id'=>$cycle,'employee_id'=>$users[$key],'manager_id'=>$users[$manager]]);
         demo_insert('feedback_requests',['participant_id'=>$participant,'respondent_id'=>$users[$key],'type'=>'self']);
         if($key==='alex') {
-            demo_insert('peer_nominations',['participant_id'=>$participant,'peer_id'=>$users['jamie'],'status'=>'approved','nominated_by'=>$users['alex'],'decided_by'=>$users['casey']]);
+            demo_insert('peer_nominations',[
+                'participant_id'=>$participant,'peer_id'=>$users['jamie'],
+                'shared_work'=>'Customer onboarding guide',
+                'collaboration_details'=>'Jamie reviewed the onboarding workflow, tested the handover steps and helped refine the final guide.',
+                'reviewer_justification'=>'Jamie directly observed my communication, collaboration and delivery quality throughout the shared work.',
+                'status'=>'approved','nominated_by'=>$users['alex'],'decided_by'=>$users['casey'],'decided_at'=>date('Y-m-d H:i:s'),
+            ]);
             demo_insert('feedback_requests',['participant_id'=>$participant,'respondent_id'=>$users['jamie'],'type'=>'peer']);
+            demo_insert('peer_nominations',[
+                'participant_id'=>$participant,'peer_id'=>$users['drew'],
+                'shared_work'=>'Support handover trial',
+                'collaboration_details'=>'Drew and I compared support handovers and tested how the revised guide worked during two shared cases.',
+                'reviewer_justification'=>'Drew directly observed how I explained the process and responded to feedback during the trial.',
+                'status'=>'rejected','nominated_by'=>$users['alex'],'decided_by'=>$users['casey'],
+                'decision_reason'=>'The shared trial was too short to provide enough evidence for the full review period.',
+                'decided_at'=>date('Y-m-d H:i:s'),
+            ]);
         }
     }
     $cycle=demo_insert('review_cycles',['name'=>'Previous Performance Review','period_start'=>$day('-180 days'),'period_end'=>$day('-90 days'),'status'=>'released','created_by'=>$users['riley'],'released_at'=>date('Y-m-d H:i:s')]);

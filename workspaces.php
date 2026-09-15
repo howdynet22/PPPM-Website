@@ -91,7 +91,48 @@ function workspace_personal(int $viewer): array
         JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users e ON e.id=rp.employee_id
         WHERE fr.respondent_id=? AND fr.type IN ('self','peer') ORDER BY due,fr.id", [$viewer]);
     foreach ($requests as &$request) $request['canSubmit'] = personal_feedback_open($request);
-    return ['goals'=>$goals, 'plans'=>$plans, 'pips'=>workspace_pips($viewer,'employee'), 'reviews'=>$reviews, 'requests'=>$requests];
+
+    // Employees see only nominations for their own review participants. Manager
+    // decisions and HR escalation state are visible, but no private peer response is exposed.
+    $nominations = workspace_rows("SELECT pn.id,pn.participant_id participantId,rc.name cycle,peer.full_name peer,peer.job_title peerJobTitle,
+        pn.shared_work sharedWork,pn.collaboration_details collaborationDetails,pn.reviewer_justification reviewerJustification,
+        pn.direct_knowledge_confirmed directKnowledgeConfirmed,pn.status,pn.decision_reason decisionReason,pn.decided_at decidedAt,manager.full_name manager,
+        pne.status escalationStatus,pne.escalation_reason escalationReason,pne.escalated_at escalatedAt
+        FROM peer_nominations pn JOIN review_participants rp ON rp.id=pn.participant_id
+        JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users peer ON peer.id=pn.peer_id
+        JOIN users manager ON manager.id=rp.manager_id
+        LEFT JOIN peer_nomination_escalations pne ON pne.nomination_id=pn.id
+        WHERE rp.employee_id=? ORDER BY pn.created_at DESC,pn.id DESC", [$viewer]);
+
+    // An eligible reviewer is active, has Personal access, is not the employee or
+    // their assigned manager, and is not already nominated or assigned in this cycle.
+    $nominationOptions = [];
+    $openParticipants = workspace_rows("SELECT rp.id participant_id,rp.manager_id,rc.name cycle,rc.peer_deadline
+        FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id
+        WHERE rp.employee_id=? AND rp.status IN ('not_started','self_submitted')
+        AND rc.status IN ('open','peer_review') AND (rc.peer_deadline IS NULL OR rc.peer_deadline>=CURDATE())
+        ORDER BY rc.period_end DESC,rp.id DESC", [$viewer]);
+    foreach ($openParticipants as $participant) {
+        $peers = workspace_rows("SELECT DISTINCT u.id,u.full_name,u.job_title,d.department_name department,t.team_name team
+            FROM users u JOIN role_permissions rperm ON rperm.role_code=u.role
+            JOIN permissions perm ON perm.id=rperm.permission_id AND perm.permission_code='employee.dashboard'
+            LEFT JOIN departments d ON d.id=u.department_id LEFT JOIN teams t ON t.id=u.team_id
+            WHERE u.is_active=1 AND u.id NOT IN (?,?)
+            AND NOT EXISTS (SELECT 1 FROM peer_nominations pn WHERE pn.participant_id=? AND pn.peer_id=u.id)
+            AND NOT EXISTS (SELECT 1 FROM feedback_requests fr WHERE fr.participant_id=? AND fr.respondent_id=u.id AND fr.type='peer')
+            ORDER BY u.full_name", [$viewer,(int)$participant['manager_id'],(int)$participant['participant_id'],(int)$participant['participant_id']]);
+        $nominationOptions[] = [
+            'participantId'=>(int)$participant['participant_id'],
+            'cycle'=>$participant['cycle'],
+            'deadline'=>$participant['peer_deadline'],
+            'peers'=>array_map(fn($peer)=>[
+                'id'=>(int)$peer['id'],'name'=>$peer['full_name'],'jobTitle'=>$peer['job_title'],
+                'department'=>$peer['department'],'team'=>$peer['team'],
+            ],$peers),
+        ];
+    }
+    return ['goals'=>$goals, 'plans'=>$plans, 'pips'=>workspace_pips($viewer,'employee'), 'reviews'=>$reviews,
+        'requests'=>$requests, 'nominations'=>$nominations, 'nominationOptions'=>$nominationOptions];
 }
 
 function personal_feedback_open(array $request): bool
@@ -181,6 +222,75 @@ function workspace_api(string $action): never
         audit($viewer,'UPDATE_STEP_STATUS','work_step',$id,$step['status'].' -> '.$status);
         $pdo->commit();
         json_response(['ok'=>true]);
+    }
+    if ($action === 'create_peer_nomination') {
+        require_permission('employee.dashboard');
+        require_method('POST'); require_csrf();
+        $in = input();
+        $participantId = (int)($in['participantId'] ?? 0);
+        $peerId = (int)($in['peerId'] ?? 0);
+        $sharedWork = trim((string)($in['sharedWork'] ?? ''));
+        $collaboration = trim((string)($in['collaborationDetails'] ?? ''));
+        $justification = trim((string)($in['reviewerJustification'] ?? ''));
+        $confirmed = filter_var($in['directKnowledgeConfirmed'] ?? false,FILTER_VALIDATE_BOOLEAN);
+        if (strlen($sharedWork)<5 || strlen($sharedWork)>255) json_response(['ok'=>false,'error'=>'Name the shared project or deliverable using 5 to 255 characters'],422);
+        if (strlen($collaboration)<30 || strlen($collaboration)>2000) json_response(['ok'=>false,'error'=>'Describe the work you completed together using 30 to 2,000 characters'],422);
+        if (strlen($justification)<30 || strlen($justification)>2000) json_response(['ok'=>false,'error'=>'Explain what this peer directly observed using 30 to 2,000 characters'],422);
+        if (!$confirmed) json_response(['ok'=>false,'error'=>'Confirm that this peer directly observed your work during the review period'],422);
+        $pdo->beginTransaction();
+        $participant = workspace_rows("SELECT rp.id,rp.manager_id,rp.status participant_status,rc.status cycle_status,rc.peer_deadline
+            FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id
+            WHERE rp.id=? AND rp.employee_id=? FOR UPDATE",[$participantId,$viewer])[0] ?? null;
+        if (!$participant) { $pdo->rollBack(); json_response(['ok'=>false,'error'=>'Review cycle not found'],404); }
+        if (!in_array($participant['participant_status'],['not_started','self_submitted'],true)
+            || !in_array($participant['cycle_status'],['open','peer_review'],true)
+            || ($participant['peer_deadline'] && $participant['peer_deadline']<date('Y-m-d'))) {
+            $pdo->rollBack(); json_response(['ok'=>false,'error'=>'Peer nominations are closed for this review cycle'],409);
+        }
+        if ($peerId===$viewer || $peerId===(int)$participant['manager_id']) {
+            $pdo->rollBack(); json_response(['ok'=>false,'error'=>'Choose an eligible peer rather than yourself or your assigned manager'],422);
+        }
+        $eligible = workspace_rows("SELECT u.id FROM users u WHERE u.id=? AND u.is_active=1 AND EXISTS (
+            SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id
+            WHERE rp.role_code=u.role AND p.permission_code='employee.dashboard')",[$peerId])[0] ?? null;
+        if (!$eligible) { $pdo->rollBack(); json_response(['ok'=>false,'error'=>'The selected person is not an eligible peer reviewer'],422); }
+        $duplicate = workspace_rows("SELECT 1 found FROM peer_nominations WHERE participant_id=? AND peer_id=?
+            UNION SELECT 1 FROM feedback_requests WHERE participant_id=? AND respondent_id=? AND type='peer' LIMIT 1",
+            [$participantId,$peerId,$participantId,$peerId]);
+        if ($duplicate) { $pdo->rollBack(); json_response(['ok'=>false,'error'=>'This peer is already nominated or assigned for the review'],409); }
+        $stmt=$pdo->prepare("INSERT INTO peer_nominations
+            (participant_id,peer_id,shared_work,collaboration_details,reviewer_justification,direct_knowledge_confirmed,nominated_by)
+            VALUES(?,?,?,?,?,?,?)");
+        $stmt->execute([$participantId,$peerId,$sharedWork,$collaboration,$justification,1,$viewer]);
+        $id=(int)$pdo->lastInsertId();
+        audit($viewer,'CREATE_PEER_NOMINATION','peer_nomination',$id,'Submitted peer reviewer nomination');
+        $pdo->commit();
+        json_response(['ok'=>true,'id'=>$id]);
+    }
+    if ($action === 'escalate_peer_nomination') {
+        require_permission('employee.dashboard');
+        require_method('POST'); require_csrf();
+        $in = input();
+        $id = (int)($in['id'] ?? 0);
+        $reason = trim((string)($in['reason'] ?? ''));
+        if (strlen($reason)<30 || strlen($reason)>2000) json_response(['ok'=>false,'error'=>'Explain why HR should review this decision using 30 to 2,000 characters'],422);
+        $pdo->beginTransaction();
+        $nomination = workspace_rows("SELECT pn.id,pn.status,rc.status cycle_status
+            FROM peer_nominations pn JOIN review_participants rp ON rp.id=pn.participant_id
+            JOIN review_cycles rc ON rc.id=rp.cycle_id
+            WHERE pn.id=? AND rp.employee_id=? FOR UPDATE",[$id,$viewer])[0] ?? null;
+        if (!$nomination) { $pdo->rollBack(); json_response(['ok'=>false,'error'=>'Nomination not found'],404); }
+        if ($nomination['status']!=='rejected') { $pdo->rollBack(); json_response(['ok'=>false,'error'=>'Only a rejected nomination can be forwarded to HR'],409); }
+        if (in_array($nomination['cycle_status'],['released','closed'],true)) { $pdo->rollBack(); json_response(['ok'=>false,'error'=>'This review cycle is already closed'],409); }
+        if (workspace_rows('SELECT id FROM peer_nomination_escalations WHERE nomination_id=?',[$id])) {
+            $pdo->rollBack(); json_response(['ok'=>false,'error'=>'This nomination has already been forwarded to HR'],409);
+        }
+        $stmt=$pdo->prepare('INSERT INTO peer_nomination_escalations(nomination_id,employee_id,escalation_reason) VALUES(?,?,?)');
+        $stmt->execute([$id,$viewer,$reason]);
+        $escalationId=(int)$pdo->lastInsertId();
+        audit($viewer,'ESCALATE_PEER_NOMINATION','peer_nomination_escalation',$escalationId,'Forwarded rejected nomination to HR');
+        $pdo->commit();
+        json_response(['ok'=>true,'id'=>$escalationId]);
     }
     if (in_array($action,['feedback_form','submit_personal_feedback'],true)) {
         require_permission('employee.dashboard');

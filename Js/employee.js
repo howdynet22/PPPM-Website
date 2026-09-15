@@ -5,6 +5,23 @@
   let user,data,busy=false,dialog,last='';
   const empty=text=>`<p class="empty">${text}</p>`;
   const cycleName=name=>name==='Demo previous check-in'?'Previous Performance Review':name;
+  function nominationCard(item) {
+    const decision=item.status==='rejected'
+      ? `<div class="notice warn"><strong>Manager declined this nomination</strong><p>${esc(item.decisionReason || 'No reason was recorded.')}</p></div>`
+      : item.status==='approved'
+        ? '<p class="notice">Approved. The peer feedback request is available to the reviewer.</p>'
+        : '<p class="muted">Waiting for your manager to review the evidence.</p>';
+    const escalation=item.escalationStatus
+      ? `<div class="notice"><strong>Forwarded to HR</strong><p>${esc(item.escalationReason || '')}</p><p class="muted">Status: ${label(item.escalationStatus)}</p></div>`
+      : '';
+    const escalate=item.status==='rejected'&&!item.escalationStatus
+      ? `<button class="btn small" data-escalate-nomination="${item.id}">Forward decision to HR</button>`
+      : '';
+    return `<article class="personal-item nomination-item"><div class="section-head"><div><h4>${esc(item.peer)}</h4><p class="muted">${esc(item.peerJobTitle || 'Job title not set')} · ${esc(cycleName(item.cycle))}</p></div><span class="status">${label(item.status)}</span></div>
+      <p><strong>Shared work:</strong> ${esc(item.sharedWork)}</p>
+      <details><summary>View nomination evidence</summary><p><strong>Work completed together</strong><br>${esc(item.collaborationDetails)}</p><p><strong>Why this peer can review the work</strong><br>${esc(item.reviewerJustification)}</p></details>
+      ${decision}${escalation}${escalate}</article>`;
+  }
   function itemCard(item) {
     return `<article class="personal-item"><div class="section-head"><div><h3>${esc(item.title)}</h3><p class="muted">Due ${esc(item.due || 'Not set')}${item.owner?` · Set by ${esc(item.owner)}`:''}</p></div>
       <button class="btn small" data-work-type="${item.type}" data-work-id="${item.id}">Open goal</button></div>${progress(item.progress)}</article>`;
@@ -24,12 +41,17 @@
       <div class="section-head"><h2>My goals</h2><button class="btn" data-create="goal">+ Goal</button></div><div class="card">${data.goals.map(itemCard).join('') || empty('No personal goals yet.')}</div></section>
       <section id="improvement" class="workspace-section"><h2>My improvement plans</h2>${data.pips.map(p=>`<article class="card"><div class="section-head"><h3>${esc(p.reason)}</h3><span class="status">${label(p.status)}</span></div><p class="muted">${esc(p.start_date)} to ${esc(p.end_date)} · Manager: ${esc(p.manager)} · HR owner: ${esc(p.hr_owner)}</p>
       ${p.objectives.map(itemCard).join('')}${p.checkins.length?`<details><summary>Check-ins (${p.checkins.length})</summary>${p.checkins.map(c=>`<p>${esc(c.notes)}<br><small class="muted">${esc(c.author)} · ${esc(c.checkin_date)}</small></p>`).join('')}</details>`:''}${p.outcome_note?`<p>${esc(p.outcome_note)}</p>`:''}</article>`).join('') || empty('No improvement plans assigned.')}</section>
-      <section id="feedback" class="workspace-section"><h2>Reviews & 360° feedback</h2><div class="card"><h3>My feedback requests</h3>
+      <section id="feedback" class="workspace-section"><h2>Reviews & 360° feedback</h2>
+      <div class="card"><div class="section-head"><div><h3>My peer reviewer nominations</h3><p class="muted">Nominate someone who directly observed your work during an active review cycle.</p></div><button class="btn primary" data-nominate-peer>+ Nominate peer</button></div>
+      ${(data.nominations || []).map(nominationCard).join('') || empty('No peer reviewers nominated yet.')}</div>
+      <div class="card"><h3>My feedback requests</h3>
       ${data.requests.map(r=>`<div class="personal-item section-head"><div><strong>${r.type==='self'?'Self review':`Feedback for ${esc(r.employee)}`}</strong><p class="muted">${esc(cycleName(r.cycle))} · ${label(r.status)}${r.due?` · Due ${esc(r.due)}`:''}</p>${!r.canSubmit && r.status==='pending'?'<p class="muted">The submission window is closed or has not opened.</p>':''}</div><button class="btn small ${r.canSubmit?'primary':''}" data-feedback="${r.id}">${r.canSubmit?'Open form':'View form'}</button></div>`).join('') || empty('No feedback requests assigned.')}</div>
       ${data.reviews.map(r=>`<article class="card"><h3>${esc(cycleName(r.cycle))}</h3><p><span class="status">${label(r.status)}</span></p>${r.status==='released'?`<p>Final rating: <strong>${r.final_rating==null?'Not rated':`${Number(r.final_rating).toFixed(1)} / 5`}</strong></p><p>${esc(r.manager_summary || '')}</p><h4>Anonymous peer feedback</h4>${r.feedback.length?r.feedback.map(f=>`<p>${esc(f.competency)} <strong>${Number(f.avg_score).toFixed(1)} / 5</strong></p>`).join(''):`<p class="notice">Anonymous feedback is available after at least ${Number(r.min_peers)} peer responses.</p>`}`:'<p class="notice">Your results will appear when the review is formally released.</p>'}</article>`).join('')}</section>`;
     content.querySelectorAll('[data-work-id]').forEach(b=>b.onclick=()=>openWorkItem(b.dataset.workType,Number(b.dataset.workId)));
     content.querySelectorAll('[data-create]').forEach(b=>b.onclick=()=>createForm(b.dataset.create));
     content.querySelectorAll('[data-feedback]').forEach(b=>b.onclick=()=>feedbackForm(Number(b.dataset.feedback)));
+    content.querySelector('[data-nominate-peer]')?.addEventListener('click',nominationForm);
+    content.querySelectorAll('[data-escalate-nomination]').forEach(b=>b.onclick=()=>escalationForm(Number(b.dataset.escalateNomination)));
     updatePersonalNavigation();
   }
   async function refresh() {
@@ -66,6 +88,37 @@
     dialog.querySelector('form').onsubmit=e=>{e.preventDefault();const f=e.currentTarget;
       const body={employeeId:Number(user.id),title:f.elements.title.value.trim(),due:f.elements.due.value,steps:f.elements.steps.value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)};
       body[type==='pdp'?'description':'target']=f.elements.description.value.trim();saveForm(f,type==='pdp'?'create_pdp':'create_goal',body);};
+  }
+  function nominationForm() {
+    const cycles=(data.nominationOptions || []).filter(option=>option.peers.length);
+    if(!cycles.length){message.textContent='No active review cycle with eligible peers is available.';return;}
+    const cycleOptions=cycles.map(option=>`<option value="${option.participantId}">${esc(cycleName(option.cycle))}${option.deadline?` · Nominate by ${esc(option.deadline)}`:''}</option>`).join('');
+    formDialog('Nominate a peer reviewer',`<p class="muted">Choose someone who worked closely enough with you to give evidence-based feedback. Your assigned manager cannot be nominated because they complete a separate manager review.</p><form id="peerNominationForm" class="workspace-form">
+      <label>Review cycle<select name="participantId" required>${cycleOptions}</select></label>
+      <label>Proposed peer reviewer<select name="peerId" required></select></label>
+      <label>Shared project or deliverable<input name="sharedWork" required minlength="5" maxlength="255" placeholder="Example: Customer onboarding redesign"></label>
+      <label>What work did you complete together?<textarea name="collaborationDetails" required minlength="30" maxlength="2000" rows="4" placeholder="Describe the tasks, deliverables, dates or decisions you worked on together."></textarea><small>Be specific enough for your manager to verify the working relationship.</small></label>
+      <label>Why can this person review your performance?<textarea name="reviewerJustification" required minlength="30" maxlength="2000" rows="4" placeholder="Explain what they directly observed, such as collaboration, communication, delivery quality or problem solving."></textarea></label>
+      <label class="confirm-check"><input name="directKnowledgeConfirmed" type="checkbox" required> I confirm this person directly observed my work during this review period.</label>
+      <button class="btn primary" type="submit">Send nomination to manager</button></form>`);
+    const form=dialog.querySelector('form');
+    const cycleSelect=form.elements.participantId;
+    const peerSelect=form.elements.peerId;
+    const updatePeers=()=>{const cycle=cycles.find(option=>Number(option.participantId)===Number(cycleSelect.value));peerSelect.innerHTML=(cycle?.peers || []).map(peer=>`<option value="${peer.id}">${esc(peer.name)} — ${esc(peer.jobTitle || 'Job title not set')}${peer.team?` · ${esc(peer.team)}`:''}</option>`).join('');};
+    cycleSelect.onchange=updatePeers;updatePeers();
+    form.onsubmit=e=>{e.preventDefault();const f=e.currentTarget;saveForm(f,'create_peer_nomination',{
+      participantId:Number(f.elements.participantId.value),peerId:Number(f.elements.peerId.value),sharedWork:f.elements.sharedWork.value.trim(),
+      collaborationDetails:f.elements.collaborationDetails.value.trim(),reviewerJustification:f.elements.reviewerJustification.value.trim(),
+      directKnowledgeConfirmed:f.elements.directKnowledgeConfirmed.checked,
+    });};
+  }
+  function escalationForm(id) {
+    const nomination=(data.nominations || []).find(item=>Number(item.id)===id);
+    if(!nomination)return;
+    formDialog('Forward decision to HR',`<p>Your manager declined <strong>${esc(nomination.peer)}</strong> as a reviewer.</p><div class="notice warn"><strong>Manager reason</strong><p>${esc(nomination.decisionReason || 'No reason was recorded.')}</p></div>
+      <form class="workspace-form"><label>Why should HR review this decision?<textarea name="reason" required minlength="30" maxlength="2000" rows="5" placeholder="Explain why the peer has relevant first-hand knowledge or why the manager decision may be incorrect."></textarea><small>HR handling will remain pending until the HR workspace supports this process.</small></label>
+      <button class="btn primary" type="submit">Forward to HR</button></form>`);
+    const form=dialog.querySelector('form');form.onsubmit=e=>{e.preventDefault();saveForm(form,'escalate_peer_nomination',{id,reason:form.elements.reason.value.trim()});};
   }
   async function feedbackForm(id) {
     try {

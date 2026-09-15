@@ -43,6 +43,14 @@
 }
 .personal-item { border-top:1px solid #e7ebf2; padding:20px 0; }
 .personal-item:last-child { padding-bottom:0; }
+.nomination-item > p,
+.nomination-item > details,
+.nomination-item > .notice,
+.nomination-item > .btn { margin-top:12px; }
+.nomination-item details { padding:12px; background:#f8fafc; border-radius:8px; }
+.nomination-item summary { cursor:pointer; font-weight:700; }
+.workspace-form .confirm-check { display:flex; flex-direction:row; align-items:flex-start; gap:9px; font-weight:600; }
+.workspace-form .confirm-check input { width:auto; margin-top:3px; }
 .personal-dashboard-page .empty { padding:24px; color:#64748b; background:#f0f3f8; border-radius:8px; }
 .work-progress { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:12px 0; font-size:13px; }
 .work-progress progress { width:130px; height:9px; accent-color:#2858ad; }
