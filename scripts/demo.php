@@ -143,7 +143,7 @@ function seed_demo(): void
             demo_insert('feedback_requests',['participant_id'=>$participant,'respondent_id'=>$users['jamie'],'type'=>'peer']);
         }
     }
-    $cycle=demo_insert('review_cycles',['name'=>'Demo previous check-in','period_start'=>$day('-180 days'),'period_end'=>$day('-90 days'),'status'=>'released','created_by'=>$users['riley'],'released_at'=>date('Y-m-d H:i:s')]);
+    $cycle=demo_insert('review_cycles',['name'=>'Previous Performance Review','period_start'=>$day('-180 days'),'period_end'=>$day('-90 days'),'status'=>'released','created_by'=>$users['riley'],'released_at'=>date('Y-m-d H:i:s')]);
     $participant=demo_insert('review_participants',['cycle_id'=>$cycle,'employee_id'=>$users['morgan'],'manager_id'=>$users['avery'],'status'=>'released','final_rating'=>4,'manager_summary'=>'Clear priorities and thoughtful follow-through.','released_at'=>date('Y-m-d H:i:s')]);
     foreach(['jordan','riley','quinn'] as $peer){
         $request=demo_insert('feedback_requests',['participant_id'=>$participant,'respondent_id'=>$users[$peer],'type'=>'peer','status'=>'submitted','submitted_at'=>date('Y-m-d H:i:s')]);
