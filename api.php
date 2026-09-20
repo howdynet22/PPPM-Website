@@ -8,9 +8,13 @@ $action = $_GET["action"] ?? "";
 
 require_once __DIR__ . "/work-steps.php";
 require_once __DIR__ . "/workspaces.php";
+require_once __DIR__ . "/hr.php";
+require_once __DIR__ . "/admin.php";
 
 try {
     if (str_starts_with((string) $action, "org_")) { organization_api((string) $action); }
+    if (str_starts_with((string) $action, "hr_")) { hr_api((string) $action); }
+    if (str_starts_with((string) $action, "admin_")) { admin_api((string) $action); }
     if (in_array($action, ["workspace", "work_item", "set_step_status", "submit_personal_feedback", "feedback_form", "create_peer_nomination", "escalate_peer_nomination"], true)) { workspace_api($action); }
     switch ($action) {
         // Login functions.

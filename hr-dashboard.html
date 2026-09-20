@@ -3,46 +3,375 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HR Dashboard</title>
+    <title>HR Dashboard | Performance &amp; Development Tracker</title>
     <!-- Shared page styles -->
     <link rel="stylesheet" href="css/styles.css" />
   </head>
-  <body class="placeholder-dashboard">
-    <!-- HR placeholder content -->
-    <main class="shell">
-      <div class="card">
-        <p class="role" data-user-role>HR</p>
-        <h1>HR Dashboard</h1>
-        <p>
-          Signed in as <strong data-user-name></strong> (<span
-            data-user-email
-          ></span
-          >).
-        </p>
-        <p class="muted">
-          Access to this area is checked against your database role and
-          permissions. Unauthorized users are redirected automatically.
-        </p>
-        <div class="grid">
-          <div class="item" data-permission="hr.dashboard">
-            <strong>Dashboard access</strong>
-            <p class="muted">Your hr dashboard permission is active.</p>
-          </div>
-          <div class="item" data-permission="hr.reports">
-            <strong>Hr Reports</strong>
-            <p class="muted">
-              This permission is granted to your role in the database.
+  <body class="manager-dashboard-page">
+    <div class="app">
+      <!-- HR navigation. Each entry is hidden unless the signed-in role holds
+           the permission named on it. -->
+      <aside class="sidebar">
+        <div class="brand">P&amp;D TRACKER<small>HR workspace</small></div>
+        <div id="workspaceControls"></div>
+        <div class="nav-title">HR</div>
+        <button class="nav-btn active" data-page="overview" data-permission="hr.dashboard">
+          Dashboard
+        </button>
+        <button class="nav-btn" data-page="directory" data-permission="hr.dashboard">
+          Employee directory
+        </button>
+        <button class="nav-btn" data-page="cases" data-permission="hr.cases">
+          Escalated cases
+        </button>
+        <button class="nav-btn" data-page="pips" data-permission="hr.pips">
+          Improvement plans
+        </button>
+        <button class="nav-btn" data-page="cycles" data-permission="hr.reports">
+          Review cycles
+        </button>
+        <button class="nav-btn" data-page="reports" data-permission="hr.reports">
+          Reports &amp; insights
+        </button>
+        <a class="nav-btn" href="org-structure.html" data-permission="org.structure.view">
+          Organization hierarchy
+        </a>
+        <div class="sidebar-bottom">
+          <button class="nav-btn" id="logoutBtn">Sign out</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <p id="hrSync" role="status" aria-live="polite">Loading HR data…</p>
+
+        <header class="topbar">
+          <div class="title">
+            <h1 id="pageTitle">HR Dashboard</h1>
+            <p id="pageSubtitle">
+              People data, escalated cases and improvement plans in one place.
             </p>
           </div>
-          <div class="item" data-permission="org.structure.view">
-            <strong>Organization hierarchy</strong>
-            <p class="muted">View and manage reporting lines, departments and teams.</p>
-            <a class="btn" href="org-structure.html">Open hierarchy</a>
+          <div class="top-actions">
+            <button class="btn" id="refreshBtn">Refresh</button>
+            <div class="avatar" data-user-initials>U</div>
           </div>
-        </div>
+        </header>
+
+        <!-- Overview -->
+        <section class="page active" id="page-overview">
+          <div class="grid kpis">
+            <div class="card kpi">
+              <div class="label">Active headcount</div>
+              <div class="value" id="kpiHeadcount">—</div>
+              <div class="sub" id="kpiHeadcountSub">Accounts in the directory</div>
+            </div>
+            <div class="card kpi">
+              <div class="label">Escalated cases</div>
+              <div class="value" id="kpiCases">—</div>
+              <div class="sub">Awaiting an HR decision</div>
+            </div>
+            <div class="card kpi">
+              <div class="label">Live improvement plans</div>
+              <div class="value" id="kpiPips">—</div>
+              <div class="sub" id="kpiPipsSub">Active or extended</div>
+            </div>
+            <div class="card kpi">
+              <div class="label">Outstanding feedback</div>
+              <div class="value" id="kpiFeedback">—</div>
+              <div class="sub">Forms not yet submitted</div>
+            </div>
+          </div>
+
+          <div class="grid two">
+            <div class="card" data-permission="hr.cases">
+              <div class="section-head">
+                <div>
+                  <h2>Cases needing a decision</h2>
+                  <p>Employees who asked HR to review a rejected peer nomination.</p>
+                </div>
+                <button class="btn small" data-page-jump="cases">Open queue</button>
+              </div>
+              <div class="table-wrap">
+                <table class="table responsive-table">
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Peer</th>
+                      <th>Manager</th>
+                      <th>Raised</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="overviewCases"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card" data-permission="hr.pips">
+              <div class="section-head">
+                <div>
+                  <h2>Plans you own</h2>
+                  <p>Improvement plans assigned to you as the HR owner.</p>
+                </div>
+                <button class="btn small" data-page-jump="pips">All plans</button>
+              </div>
+              <div class="table-wrap">
+                <table class="table responsive-table">
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Ends</th>
+                      <th>Objectives met</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="overviewPips"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" data-permission="hr.reports">
+            <div class="section-head">
+              <div>
+                <h2>Review cycle progress</h2>
+                <p>Completion across every cycle that is not yet closed.</p>
+              </div>
+            </div>
+            <div id="overviewCycles" class="metric-list"></div>
+          </div>
+        </section>
+
+        <!-- Employee directory -->
+        <section class="page" id="page-directory">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>Employee directory</h2>
+                <p>Search people, then open a record for the reporting path and plan history.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn small" id="exportDirectoryBtn">Export CSV</button>
+              </div>
+            </div>
+            <div class="org-filters">
+              <input id="directorySearch" type="search" placeholder="Search name, email or code" aria-label="Search the directory" />
+              <select id="directoryDepartment" aria-label="Filter by department">
+                <option value="">All departments</option>
+              </select>
+              <select id="directoryRole" aria-label="Filter by access level">
+                <option value="">All access levels</option>
+              </select>
+              <select id="directoryStatus" aria-label="Filter by account status">
+                <option value="active">Active accounts</option>
+                <option value="inactive">Inactive accounts</option>
+                <option value="all">All accounts</option>
+              </select>
+            </div>
+            <p class="muted" id="directoryCount"></p>
+            <div class="table-wrap">
+              <table class="table responsive-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Department / team</th>
+                    <th>Manager</th>
+                    <th>Access</th>
+                    <th>Flags</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="directoryTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Escalated peer-nomination cases -->
+        <section class="page" id="page-cases">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>Escalated peer nominations</h2>
+                <p>
+                  Upholding leaves the manager's rejection in place. Overturning
+                  creates the peer's feedback form and records the override.
+                </p>
+              </div>
+            </div>
+            <div class="tabs">
+              <button class="tab active" data-tab="cases-open">Awaiting decision</button
+              ><button class="tab" data-tab="cases-resolved">Resolved</button>
+            </div>
+            <div class="tab-panel active" id="cases-open">
+              <div id="casesOpen"></div>
+            </div>
+            <div class="tab-panel" id="cases-resolved">
+              <div class="table-wrap">
+                <table class="table responsive-table">
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Peer</th>
+                      <th>Outcome</th>
+                      <th>Resolved by</th>
+                      <th>Resolved</th>
+                    </tr>
+                  </thead>
+                  <tbody id="casesResolved"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Improvement plans -->
+        <section class="page" id="page-pips">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>Performance improvement plans</h2>
+                <p>
+                  Every plan is listed for oversight. Only the assigned HR owner
+                  can change a plan's status or outcome.
+                </p>
+              </div>
+              <div class="toolbar">
+                <button class="btn small" id="exportPipsBtn">Export CSV</button>
+              </div>
+            </div>
+            <div class="org-filters">
+              <select id="pipFilter" aria-label="Filter improvement plans">
+                <option value="mine">Plans I own</option>
+                <option value="live">Active and extended</option>
+                <option value="all">All plans</option>
+              </select>
+            </div>
+            <div class="table-wrap">
+              <table class="table responsive-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Manager</th>
+                    <th>HR owner</th>
+                    <th>Dates</th>
+                    <th>Objectives</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="pipsTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Review cycles -->
+         
+ <section class="page" id="page-cycles">
+  <div class="card">
+    <div class="section-head">
+      <div>
+        <h2>Review cycles</h2>
+        <p>Participation, outstanding forms and average released ratings.</p>
       </div>
-    </main>
-    <!-- Authentication and permission checks -->
-    <script src="Js/auth.js" data-roles="hr"></script>
+
+      <button class="btn" id="startCycleBtn">
+        Start review cycle
+      </button>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table responsive-table">
+        <thead>
+          <tr>
+            <th>Cycle</th>
+            <th>Period</th>
+            <th>Status</th>
+            <th>Completion</th>
+            <th>Pending forms</th>
+            <th>Average rating</th>
+          </tr>
+        </thead>
+        <tbody id="cyclesTable"></tbody>
+      </table>
+    </div>
+  </div>
+ </section>
+
+        <!-- Reports -->
+        <section class="page" id="page-reports">
+          <div class="grid two">
+            <div class="card">
+              <div class="section-head">
+                <div>
+                  <h2>By department</h2>
+                  <p>Headcount, live improvement plans and average released rating.</p>
+                </div>
+                <button class="btn small" id="exportDepartmentsBtn">Export CSV</button>
+              </div>
+              <div class="table-wrap">
+                <table class="table responsive-table">
+                  <thead>
+                    <tr>
+                      <th>Department</th>
+                      <th>Headcount</th>
+                      <th>Inactive</th>
+                      <th>Live PIPs</th>
+                      <th>Average rating</th>
+                    </tr>
+                  </thead>
+                  <tbody id="reportDepartments"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card">
+              <div class="section-head">
+                <div>
+                  <h2>Development health</h2>
+                  <p>Progress across development actions and their steps.</p>
+                </div>
+              </div>
+              <div id="reportDevelopment" class="metric-list"></div>
+              <div class="section-head spaced-top">
+                <div>
+                  <h2>Most requested skills</h2>
+                  <p>Open development actions grouped by the skill they target.</p>
+                </div>
+              </div>
+              <div id="reportSkills" class="metric-list"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>Improvement plan outcomes</h2>
+                <p>Every plan grouped by its current state.</p>
+              </div>
+            </div>
+            <div id="reportPipOutcomes" class="metric-list"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Shared dialog and message host -->
+    <div class="modal-backdrop" id="modalBackdrop">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-head">
+          <h3 id="modalTitle">Action</h3>
+          <button class="close" id="modalClose" aria-label="Close dialog">×</button>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-foot" id="modalFoot"></div>
+      </div>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <!-- Authentication, shared helpers and HR data functions -->
+    <script src="Js/auth.js" data-workspace="hr"></script>
+    <script src="Js/dashboard-ui.js"></script>
+    <script src="Js/hr-db.js?v=2"></script>
   </body>
 </html>

@@ -1,8 +1,8 @@
 # PPPM — manager / personal workspace update
 
 Based on `actionable-goal-steps` (8936ccc). This update implements the personal
-workspace and updates the manager experience. HR and system administrator
-screens are maintained separately by a teammate; those HTML screens are unchanged.
+workspace and updates the manager experience. The HR and system administrator
+screens are now implemented; see "HR and administrator workspaces" below.
 
 ## Development and workspaces
 
@@ -58,6 +58,105 @@ an error; they do not show an unsaved completion as persisted.
 - The shared `me` response includes `workspaces: [{key,label,path}]` for the
   teammate's HR/admin screens. Their screen implementations are outside this PR.
 
+## HR and administrator workspaces
+
+`hr-dashboard.html` and `admin-dashboard.html` replace the earlier placeholder
+screens. Both follow the manager dashboard's structure and share `Js/dashboard-ui.js`
+for navigation, dialogs, toasts, tables and CSV export. Server code lives in
+`hr.php` and `admin.php`, dispatched from `api.php` by the `hr_` and `admin_`
+action prefixes, matching the existing `org_` pattern.
+
+Apply `migrations/005_hr_admin_dashboards.sql` once. It adds only two
+permissions and reuses the rest:
+
+- `hr.cases` — resolve escalated peer nominations. Granted to `hr`, `hr_partner`
+  and `admin`, following the documented boundary that HR coordinators do not
+  handle cases.
+- `admin.audit` — read the audit log and sign-in records. Administrator only.
+
+### HR workspace
+
+Overview, employee directory, escalated cases, improvement plans, review cycles
+and aggregate reports. Sections appear only when the signed-in role holds the
+matching permission, so an `hr_coordinator` sees the directory but not cases,
+plans or reports.
+
+The escalation queue completes the workflow migration 004 reserved. HR sees the
+nomination evidence, the manager's rejection reason and the employee's
+escalation reason, then either upholds or overturns with a 15–2,000 character
+resolution note.
+
+**Overturning does not rewrite the nomination.** The `peer_nominations` row stays
+`rejected` because it is the manager's own decision record, and
+`tests/peer_nomination_checks.sql` asserts that an escalation only ever follows a
+rejection. Overturning instead creates the peer's `feedback_requests` row and
+records the override on the escalation as `resolved_overturned`. The employee's
+workspace already reads `escalationStatus` beside the nomination, so both the
+rejection and the override are visible. Overturning is refused once the cycle is
+released or closed, once the participant reaches `manager_submitted`, or after
+the peer deadline — the same limits that bind a manager.
+
+Improvement plan writes require both `hr.pips` and matching `hr_owner_id`, so
+oversight of every plan does not imply the ability to edit one. Closing a plan
+requires an outcome note, and a closed plan is read-only. In the employee record,
+PIP reasons and outcomes are returned as `NULL` unless the viewer owns the plan.
+
+### Administrator workspace
+
+Overview, user accounts, roles and permissions, audit log and sign-in security.
+Leadership accounts reach this page with only `admin.dashboard` and `hr.reports`,
+so the management sections stay hidden for them and the server returns those
+sections empty rather than relying on the hidden markup.
+
+Accounts are deactivated, never deleted, so review, plan and audit history
+survives. Creating an account or resetting a password returns a generated
+temporary password once; it satisfies the same policy the sign-in endpoint
+enforces and is stored only as a hash.
+
+Two lockout guards run inside the transaction and roll back rather than commit:
+
+- You cannot deactivate your own account, change your own role, or remove
+  `admin.dashboard`, `admin.users` or `admin.roles` from your own role.
+- No change may leave zero active accounts able to manage users. This covers
+  role reassignment, deactivation, retiring a role and rewriting a permission set.
+
+A role with active accounts cannot be retired. Every write is audited.
+
+### Creating an administrator account
+
+The demo fixture deliberately has no `admin` account, and `tests/demo_reset.php`
+asserts a fixture of exactly 12 users, so the seeder is left unchanged. To try
+the administrator workspace, promote an existing demo account:
+
+```sql
+UPDATE users SET role='admin' WHERE email='riley@demo.pppm.test';
+```
+
+Sign in again afterwards. Use a separate demo database if you want to keep
+Riley as senior HR. Reverting is the same statement with `role='hr'`.
+
+### Verification performed
+
+Against a freshly seeded MariaDB 10.11 database on PHP 8.3:
+
+- `tests/employee_workspaces.mjs` passes unchanged.
+- `tests/organization_checks.sql`, `tests/actionable_steps_checks.sql` and
+  `tests/peer_nomination_checks.sql` report no violations, including after an
+  overturned escalation.
+- Escalation flow end to end: note-length validation, CSRF rejection, overturn
+  creating the peer feedback request, and replay returning a conflict.
+- Permission boundaries: `hr_coordinator` refused on cases and plan writes;
+  employee accounts refused on both dashboards; leadership receives a scoped
+  administrator payload.
+- Account lifecycle: create, sign in with the temporary password, reporting line
+  assignment, deactivate, sign-in refused afterwards, password reset.
+- All five lockout and self-protection guards refuse as intended.
+
+PHP files pass `php -l` and JavaScript files pass `node --check`. The dashboards
+were not opened in a browser in that environment, so the rendering layer is
+verified by lint and by a static check that every element the scripts reference
+exists on its page.
+
 ## Fresh demo setup
 
 Requires PHP 8.1+ and MySQL/MariaDB (XAMPP works).
@@ -104,7 +203,8 @@ reset by this code update.
 ## Upgrade the latest branch's existing database
 
 Back up the database and apply `migrations/003_employee_workspaces.sql`, then
-`migrations/004_peer_nomination_workflow.sql`, once each to the selected database.
+`migrations/004_peer_nomination_workflow.sql`, then
+`migrations/005_hr_admin_dashboards.sql`, once each to the selected database.
 Databases older than `actionable-goal-steps` must first apply migrations 001 and
 002 in order. Migration 003 preserves users and records, adds step
 state/note/version fields, backfills completion states and adds workspace
