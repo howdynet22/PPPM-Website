@@ -1,4 +1,6 @@
 -- Backfill self-review forms for review participants created by older HR-cycle code.
+-- Safe to run once or repeatedly: the unique key prevents duplicates.
+
 INSERT INTO feedback_requests (participant_id, respondent_id, type, status)
 SELECT rp.id, rp.employee_id, 'self', 'pending'
 FROM review_participants rp

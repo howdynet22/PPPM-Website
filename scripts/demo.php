@@ -204,7 +204,7 @@ try {
     if(!$count && (int)$pdo->query('SELECT COUNT(*) FROM users')->fetchColumn()>0)throw new RuntimeException('This database has unregistered users. Use a separate empty demo database; existing company or legacy data is preserved.');
     if($mode==='reset')demo_reset();
     seed_demo();
-    $pdo->commit();echo "Created 12 fictional people: 1 CEO, 3 managers, 3 HR staff and 5 employees. Password: password123\n";
+    $pdo->commit();echo "Created 13 fictional people: 1 CEO, 1 system administrator, 3 managers, 3 HR staff and 5 employees. Password: password123\n";
 } catch(Throwable $error){
     if(isset($pdo)&&$pdo->inTransaction())$pdo->rollBack();
     fwrite(STDERR,"Demo unchanged: ".$error->getMessage()."\n");exit(1);
