@@ -74,7 +74,14 @@ function hr_cases(string $scope = "open"): array
             WHERE {$where}
             ORDER BY e.escalated_at DESC
             LIMIT 200";
-    return db()->query($sql)->fetchAll();
+    $rows = db()->query($sql)->fetchAll();
+    foreach ($rows as &$row) {
+        $row["can_overturn"] = in_array($row["cycle_status"], ["open", "peer_review"], true)
+            && !in_array($row["participant_status"], ["manager_submitted", "released"], true)
+            && (!$row["peer_deadline"] || $row["peer_deadline"] >= date("Y-m-d"));
+    }
+    unset($row);
+    return $rows;
 }
 
 /**
@@ -167,23 +174,27 @@ function hr_cycles(): array
                    (SELECT COUNT(*) FROM feedback_requests fr
                      JOIN review_participants rp ON rp.id=fr.participant_id
                      WHERE rp.cycle_id=rc.id AND fr.status='pending') AS pending_forms,
+                   (SELECT COUNT(*) FROM review_participants rp
+                     WHERE rp.cycle_id=rc.id
+                       AND (SELECT COUNT(*) FROM feedback_requests fr
+                            WHERE fr.participant_id=rp.id AND fr.type='peer') >= rc.min_peers) AS peer_ready_participants,
+                   (SELECT COUNT(*) FROM review_participants rp
+                     WHERE rp.cycle_id=rc.id
+                       AND (SELECT COUNT(*) FROM feedback_requests fr
+                            WHERE fr.participant_id=rp.id AND fr.type='peer' AND fr.status='submitted') < rc.min_peers) AS below_peer_response_threshold,
                    (SELECT ROUND(AVG(rp.final_rating),2) FROM review_participants rp
                      WHERE rp.cycle_id=rc.id AND rp.final_rating IS NOT NULL) AS average_rating
             FROM review_cycles rc
             ORDER BY rc.period_start DESC";
     return db()->query($sql)->fetchAll();
 }
-/** Create a new review cycle and enrol active employees. */
-function hr_cycle_create(): array
+/** Create a new review cycle and enrol active employees and managers. */
+function hr_cycle_create(array $in, array $user): array
 {
-    require_method("POST");
-    $user = require_login();
-
-if (!hr_can($user, "hr.reports")) {
+    if (!hr_can($user, "hr.reports")) {
         api_error("Forbidden", 403);
     }
 
-    $in = input();
 
     $name = trim((string) ($in["name"] ?? ""));
     $periodStart = trim((string) ($in["period_start"] ?? ""));
@@ -191,7 +202,10 @@ if (!hr_can($user, "hr.reports")) {
     $selfDeadline = trim((string) ($in["self_deadline"] ?? ""));
     $peerDeadline = trim((string) ($in["peer_deadline"] ?? ""));
     $managerDeadline = trim((string) ($in["manager_deadline"] ?? ""));
-    $minPeers = max(1, min(10, (int) ($in["min_peers"] ?? 3)));
+    $minPeers = (int) ($in["min_peers"] ?? 3);
+    if ($minPeers < 3 || $minPeers > 10) {
+        api_error("Minimum peer reviews must be between 3 and 10.", 422);
+    }
 
     if ($name === "" || strlen($name) > 120) {
         api_error("Cycle name is required and must be 120 characters or fewer.", 422);
@@ -216,89 +230,267 @@ if (!hr_can($user, "hr.reports")) {
     if ($periodEnd < $periodStart) {
         api_error("End date cannot be before the start date.", 422);
     }
-
-    $pdo = db();
-
-    $stmt = $pdo->prepare(
-        "INSERT INTO review_cycles
-            (name, status, period_start, period_end, min_peers,
-             self_deadline, peer_deadline, manager_deadline)
-         VALUES
-            (?, 'open', ?, ?, ?, ?, ?, ?)"
-    );
-
-    $stmt->execute([
-        $name,
-        $periodStart,
-        $periodEnd,
-        $minPeers,
-        $selfDeadline,
-        $peerDeadline,
-        $managerDeadline,
-    ]);
-
-    $cycleId = (int) $pdo->lastInsertId();
-
-    /*
-     * Add active employees to the new review cycle.
-     * HR/admin users are excluded from employee review participation.
-     */
-    
-    $employeeStmt = $pdo->prepare(
-    "SELECT u.id,
-            r.reports_to_employee_id AS manager_id
-     FROM users u
-     INNER JOIN reporting_relationships r
-         ON r.employee_id = u.id
-        AND r.relationship_type = 'primary'
-        AND r.effective_to IS NULL
-     WHERE u.is_active = 1
-       AND u.role = 'employee'
-     ORDER BY u.id"
-);
-
-    $employeeStmt->execute();
-    $employees = $employeeStmt->fetchAll();
-
-    $participantStmt = $pdo->prepare(
-        "INSERT INTO review_participants
-            (cycle_id, employee_id, manager_id, status)
-         VALUES (?, ?, ?, 'not_started')"
-    );
-
-    $participantCount = 0;
-
-    foreach ($employees as $employee) {
-        $participantStmt->execute([
-            $cycleId,
-            (int) $employee["id"],
-            (int) $employee["manager_id"],
-        ]);
-
-        $participantCount++;
+    if ($selfDeadline > $peerDeadline || $peerDeadline > $managerDeadline) {
+        api_error(
+            "Review deadlines must be ordered: self review, then peer review, then manager review.",
+            422,
+        );
     }
 
-    audit(
-    (int) $user["id"],
-    "CREATE_REVIEW_CYCLE",
-    "review_cycle",
-    $cycleId,
-    json_encode([
-        "name" => $name,
-        "participants" => $participantCount,
-    ])
-);
+    $pdo = db();
+    $pdo->beginTransaction();
 
-    return [
-        "cycle" => [
+    try {
+        $stmt = $pdo->prepare(
+            "INSERT INTO review_cycles
+                (name, status, period_start, period_end, min_peers,
+                 self_deadline, peer_deadline, manager_deadline, created_by)
+             VALUES
+                (?, 'open', ?, ?, ?, ?, ?, ?, ?)"
+        );
+
+        $stmt->execute([
+            $name,
+            $periodStart,
+            $periodEnd,
+            $minPeers,
+            $selfDeadline,
+            $peerDeadline,
+            $managerDeadline,
+            (int) $user["id"],
+        ]);
+
+        $cycleId = (int) $pdo->lastInsertId();
+
+        /*
+         * Enrol active employees and managers that have a current primary manager.
+         * Managers remain review participants in their Personal workspace while
+         * also reviewing records assigned to them in the Manager workspace.
+         */
+        $employeeStmt = $pdo->prepare(
+            "SELECT u.id,
+                    apr.reports_to_employee_id AS manager_id
+             FROM users u
+             JOIN active_primary_relationships apr
+               ON apr.employee_id = u.id
+             WHERE u.is_active = 1
+               AND u.role IN ('employee', 'manager')
+             ORDER BY u.id"
+        );
+        $employeeStmt->execute();
+        $employees = $employeeStmt->fetchAll();
+
+        $participantStmt = $pdo->prepare(
+            "INSERT INTO review_participants
+                (cycle_id, employee_id, manager_id, status)
+             VALUES (?, ?, ?, 'not_started')"
+        );
+        $selfRequestStmt = $pdo->prepare(
+            "INSERT INTO feedback_requests
+                (participant_id, respondent_id, type, status)
+             VALUES (?, ?, 'self', 'pending')"
+        );
+
+        $participantCount = 0;
+
+        foreach ($employees as $employee) {
+            $participantStmt->execute([
+                $cycleId,
+                (int) $employee["id"],
+                (int) $employee["manager_id"],
+            ]);
+            $participantId = (int) $pdo->lastInsertId();
+
+            // Without this row, the Personal dashboard has no self-review form.
+            $selfRequestStmt->execute([
+                $participantId,
+                (int) $employee["id"],
+            ]);
+
+            $participantCount++;
+        }
+
+        audit(
+            (int) $user["id"],
+            "CREATE_REVIEW_CYCLE",
+            "review_cycle",
+            $cycleId,
+            json_encode([
+                "name" => $name,
+                "participants" => $participantCount,
+            ]),
+        );
+
+        $pdo->commit();
+
+        return [
             "id" => $cycleId,
             "name" => $name,
             "status" => "open",
             "period_start" => $periodStart,
             "period_end" => $periodEnd,
             "participants" => $participantCount,
-        ],
-    ];
+        ];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+}
+
+/**
+ * Move a visible review cycle through the stages used by the Personal and
+ * Manager workspaces. Releasing a cycle publishes manager results to employees.
+ */
+function hr_cycle_advance(array $in, int $actorId): array
+{
+    $cycleId = (int) ($in["id"] ?? 0);
+    if ($cycleId < 1) {
+        api_error("Choose a valid review cycle.", 422);
+    }
+
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        $stmt = $pdo->prepare(
+            "SELECT id,name,status FROM review_cycles WHERE id=? FOR UPDATE",
+        );
+        $stmt->execute([$cycleId]);
+        $cycle = $stmt->fetch();
+        if (!$cycle) {
+            $pdo->rollBack();
+            api_error("Review cycle not found.", 404);
+        }
+
+        $nextByStatus = [
+            "open" => "peer_review",
+            "peer_review" => "manager_review",
+            "manager_review" => "released",
+            "calibration" => "released",
+            "released" => "closed",
+        ];
+        $next = $nextByStatus[$cycle["status"]] ?? null;
+        if (!$next) {
+            $pdo->rollBack();
+            api_error("This review cycle cannot move forward from its current status.", 409);
+        }
+
+        if ($next === "peer_review") {
+            $pendingSelfStmt = $pdo->prepare(
+                "SELECT COUNT(*)
+                 FROM review_participants rp
+                 LEFT JOIN feedback_requests fr
+                   ON fr.participant_id=rp.id
+                  AND fr.respondent_id=rp.employee_id
+                  AND fr.type='self'
+                 WHERE rp.cycle_id=? AND (fr.id IS NULL OR fr.status='pending')",
+            );
+            $pendingSelfStmt->execute([$cycleId]);
+            $pendingSelf = (int) $pendingSelfStmt->fetchColumn();
+            if ($pendingSelf > 0) {
+                $pdo->rollBack();
+                api_error(
+                    $pendingSelf . " self review" . ($pendingSelf === 1 ? " is" : "s are") .
+                    " still pending. Complete them before moving the cycle to peer review.",
+                    409,
+                );
+            }
+
+            // Every participant must have the cycle's minimum number of
+            // approved/assigned peer reviewers before peer review opens. A
+            // pending nomination does not count yet; manager approval or an
+            // HR-overturned rejection creates the actual peer feedback request.
+            $missingApprovedStmt = $pdo->prepare(
+                "SELECT COUNT(*)
+                 FROM review_participants rp
+                 JOIN review_cycles rc ON rc.id=rp.cycle_id
+                 WHERE rp.cycle_id=?
+                   AND (SELECT COUNT(*) FROM feedback_requests fr
+                        WHERE fr.participant_id=rp.id AND fr.type='peer') < rc.min_peers",
+            );
+            $missingApprovedStmt->execute([$cycleId]);
+            $missingApproved = (int) $missingApprovedStmt->fetchColumn();
+            if ($missingApproved > 0) {
+                $pdo->rollBack();
+                api_error(
+                    $missingApproved . " participant" . ($missingApproved === 1 ? " still needs" : "s still need") .
+                    " the required number of approved peer reviewers before peer review can open.",
+                    409,
+                );
+            }
+        }
+
+        if ($next === "manager_review") {
+            // Keep participant status aligned with completed peer forms, including
+            // older cycles that may have been created before the workflow was wired together.
+            $pdo->prepare(
+                "UPDATE review_participants rp
+                 JOIN review_cycles rc ON rc.id=rp.cycle_id
+                 SET rp.status='peers_complete'
+                 WHERE rp.cycle_id=? AND rp.status='self_submitted'
+                   AND (SELECT COUNT(*) FROM feedback_requests fr
+                        WHERE fr.participant_id=rp.id
+                          AND fr.type='peer'
+                          AND fr.status='submitted') >= rc.min_peers"
+            )->execute([$cycleId]);
+
+            // Peer responses do not block manager review. The min_peers value
+            // remains the anonymity threshold for revealing aggregates.
+        }
+
+        if ($next === "released") {
+            $pendingStmt = $pdo->prepare(
+                "SELECT COUNT(*) FROM review_participants
+                 WHERE cycle_id=? AND status NOT IN ('manager_submitted','released')",
+            );
+            $pendingStmt->execute([$cycleId]);
+            $pending = (int) $pendingStmt->fetchColumn();
+            if ($pending > 0) {
+                $pdo->rollBack();
+                api_error(
+                    $pending . " participant" . ($pending === 1 ? "" : "s") .
+                    " still need a manager review before this cycle can be released.",
+                    409,
+                );
+            }
+
+            $pdo->prepare(
+                "UPDATE review_participants
+                 SET status='released', released_at=COALESCE(released_at,NOW())
+                 WHERE cycle_id=? AND status='manager_submitted'",
+            )->execute([$cycleId]);
+
+            $pdo->prepare(
+                "UPDATE review_cycles SET status='released',released_at=COALESCE(released_at,NOW()) WHERE id=?",
+            )->execute([$cycleId]);
+        } else {
+            $pdo->prepare(
+                "UPDATE review_cycles SET status=? WHERE id=?",
+            )->execute([$next, $cycleId]);
+        }
+
+        audit(
+            $actorId,
+            "ADVANCE_REVIEW_CYCLE",
+            "review_cycle",
+            $cycleId,
+            $cycle["status"] . " -> " . $next,
+        );
+
+        $pdo->commit();
+        return [
+            "id" => $cycleId,
+            "name" => $cycle["name"],
+            "status" => $next,
+        ];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
 }
 
 /** Aggregate reporting. No individual feedback responses are exposed here. */
@@ -341,7 +533,7 @@ function hr_reports(): array
 
 function hr_api(string $action): never
 {
-    $writes = ["hr_case_resolve", "hr_pip_update", "hr_cycle_create"];
+    $writes = ["hr_case_resolve", "hr_pip_update", "hr_cycle_create", "hr_cycle_advance"];
     if (in_array($action, $writes, true)) {
         require_method("POST");
         require_csrf();
@@ -420,11 +612,39 @@ function hr_api(string $action): never
             );
             $goals->execute([$employeeId]);
             $reviews = db()->prepare(
-                "SELECT rc.name AS cycle_name,rp.status,rp.final_rating,rp.released_at
+                "SELECT rp.id AS participant_id,rc.name AS cycle_name,rp.status,rp.final_rating,rp.released_at
                  FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id
                  WHERE rp.employee_id=? ORDER BY rc.period_start DESC LIMIT 10",
             );
             $reviews->execute([$employeeId]);
+            $reviewRows = $reviews->fetchAll();
+            foreach ($reviewRows as &$reviewRow) {
+                $self = db()->prepare(
+                    "SELECT id,status,submitted_at FROM feedback_requests " .
+                    "WHERE participant_id=? AND respondent_id=? AND type='self' LIMIT 1",
+                );
+                $self->execute([(int) $reviewRow["participant_id"], $employeeId]);
+                $selfRequest = $self->fetch() ?: null;
+                $reviewRow["self_review"] = null;
+                if ($selfRequest !== null) {
+                    $ratings = [];
+                    if ($selfRequest["status"] === "submitted") {
+                        $ratingStmt = db()->prepare(
+                            "SELECT c.id AS competency_id,c.name,fr.score,fr.comment " .
+                            "FROM feedback_ratings fr JOIN competencies c ON c.id=fr.competency_id " .
+                            "WHERE fr.request_id=? ORDER BY c.id",
+                        );
+                        $ratingStmt->execute([(int) $selfRequest["id"]]);
+                        $ratings = $ratingStmt->fetchAll();
+                    }
+                    $reviewRow["self_review"] = [
+                        "status" => $selfRequest["status"],
+                        "submitted_at" => $selfRequest["submitted_at"],
+                        "ratings" => $ratings,
+                    ];
+                }
+            }
+            unset($reviewRow);
             // PIP reasons and outcomes stay hidden unless this HR user owns the plan.
             $pips = db()->prepare(
                 "SELECT id,status,start_date,end_date,hr_owner_id,
@@ -439,7 +659,7 @@ function hr_api(string $action): never
                 "employee" => $employee,
                 "path" => get_reporting_path($employeeId),
                 "goals" => $goals->fetchAll(),
-                "reviews" => $reviews->fetchAll(),
+                "reviews" => $reviewRows,
                 "pips" => hr_can($user, "hr.pips") ? $pips->fetchAll() : [],
             ]);
                 // Start a new review cycle.
@@ -454,7 +674,21 @@ function hr_api(string $action): never
 
             json_response([
                 "ok" => true,
-                "cycle" => hr_cycle_create(),
+                "cycle" => hr_cycle_create($in, $user),
+            ]);
+
+        // Move a review cycle to the next visible stage.
+        case "hr_cycle_advance":
+            if (!hr_can($user, "hr.reports")) {
+                audit($actorId, "DENIED_PERMISSION", "permission", null, "hr.reports");
+                json_response(
+                    ["ok" => false, "error" => "You do not have permission to manage review cycles"],
+                    403,
+                );
+            }
+            json_response([
+                "ok" => true,
+                "cycle" => hr_cycle_advance($in, $actorId),
             ]);
 
         // Uphold or overturn a manager's rejected peer nomination.
@@ -505,12 +739,12 @@ function hr_api(string $action): never
                     // Overturning reinstates the nomination, so the same review
                     // window rules that bind a manager also bind HR here.
                     if (
-                        in_array($case["cycle_status"], ["released", "closed"], true) ||
+                        !in_array($case["cycle_status"], ["open", "peer_review"], true) ||
                         in_array($case["participant_status"], ["manager_submitted", "released"], true)
                     ) {
                         $pdo->rollBack();
                         json_response(
-                            ["ok" => false, "error" => "The review is no longer open, so the rejection cannot be overturned"],
+                            ["ok" => false, "error" => "The peer-review window is closed, so the rejection cannot be overturned"],
                             409,
                         );
                     }
