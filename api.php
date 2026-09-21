@@ -286,7 +286,7 @@ try {
             foreach ($employees as &$e) {
                 $eid = (int) $e["id"];
                 $stmt = $pdo->prepare(
-                    "SELECT rp.id participant_id, rp.cycle_id, rc.name cycle_name, rc.manager_deadline, " .
+                    "SELECT rp.id participant_id, rp.cycle_id, rc.name cycle_name, rc.status cycle_status, rc.manager_deadline, " .
                         "rp.status review_status, rp.final_rating rating, rp.manager_summary, " .
                         "owner.full_name review_manager FROM review_participants rp " .
                         "JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users owner ON owner.id=rp.manager_id WHERE " .
@@ -297,6 +297,7 @@ try {
                 $e["participantId"] = $review["participant_id"] ?? null;
                 $e["cycleId"] = $review["cycle_id"] ?? null;
                 $e["cycle"] = $review["cycle_name"] ?? "No review cycle";
+                $e["cycleStatus"] = $review["cycle_status"] ?? null;
                 $e["managerDeadline"] = $review["manager_deadline"] ?? null;
                 $e["reviewStatusCode"] =
                     $review["review_status"] ?? "not_started";
@@ -316,6 +317,41 @@ try {
                     $review !== null && $review["rating"] !== null
                         ? (float) $review["rating"]
                         : null;
+
+                // Direct managers can read the submitted self review for the
+                // participant assigned to them. Descendants/unrelated managers
+                // never reach this query because $review is scoped by manager_id.
+                $e["selfReview"] = null;
+                if ($review !== null) {
+                    $selfStmt = $pdo->prepare(
+                        "SELECT id,status,submitted_at FROM feedback_requests " .
+                        "WHERE participant_id=? AND respondent_id=? AND type='self' LIMIT 1",
+                    );
+                    $selfStmt->execute([(int) $review["participant_id"], $eid]);
+                    $selfRequest = $selfStmt->fetch() ?: null;
+                    if ($selfRequest !== null) {
+                        $selfRatings = [];
+                        if ($selfRequest["status"] === "submitted") {
+                            $ratingsStmt = $pdo->prepare(
+                                "SELECT c.id AS competencyId,c.name,fr.score,fr.comment " .
+                                "FROM feedback_ratings fr JOIN competencies c ON c.id=fr.competency_id " .
+                                "WHERE fr.request_id=? ORDER BY c.id",
+                            );
+                            $ratingsStmt->execute([(int) $selfRequest["id"]]);
+                            $selfRatings = $ratingsStmt->fetchAll();
+                            foreach ($selfRatings as &$selfRating) {
+                                $selfRating["competencyId"] = (int) $selfRating["competencyId"];
+                                $selfRating["score"] = (int) $selfRating["score"];
+                            }
+                            unset($selfRating);
+                        }
+                        $e["selfReview"] = [
+                            "status" => $selfRequest["status"],
+                            "submittedAt" => $selfRequest["submitted_at"],
+                            "ratings" => $selfRatings,
+                        ];
+                    }
+                }
                 $stmt = $pdo->prepare(
                     "SELECT COUNT(*) FROM goals WHERE employee_id=? AND manager_id=?",
                 );
@@ -350,11 +386,9 @@ try {
                     ];
                 }
                 $e["skills"] = $skills;
-                $reviewNeedsAction = $review !== null && !in_array(
-                    $e["reviewStatusCode"],
-                    ["manager_submitted", "released"],
-                    true,
-                );
+                $reviewNeedsAction = $review !== null
+                    && $e["cycleStatus"] === "manager_review"
+                    && in_array($e["reviewStatusCode"], ["self_submitted", "peers_complete"], true);
                 $e["attention"] =
                     $e["scope"] !== "Descendant" && (
                         ($e["rating"] !== null && $e["rating"] < 3.5) ||
@@ -367,12 +401,15 @@ try {
 
             $stmt = $pdo->prepare(
                 "SELECT pn.id,pn.status,pn.shared_work,pn.collaboration_details,pn.reviewer_justification,pn.direct_knowledge_confirmed, " .
-                    "pn.decision_reason,pn.decided_at,pn.created_at,rc.name cycle,rp.employee_id, " .
+                    "pn.decision_reason,pn.suggested_peer_id,pn.suggestion_reason,pn.decided_at,pn.created_at,rc.name cycle,rc.status cycle_status,rc.peer_deadline, " .
+                    "rp.employee_id,rp.status participant_status, " .
                     "emp.full_name employee,pn.peer_id,peer.full_name peer,peer.job_title peer_job_title, " .
+                    "suggested.full_name suggested_peer_name,suggested.job_title suggested_peer_job_title, " .
                     "pne.status escalation_status,pne.escalation_reason,pne.escalated_at " .
                     "FROM peer_nominations pn JOIN review_participants rp ON rp.id=pn.participant_id " .
                     "JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users emp ON emp.id=rp.employee_id " .
-                    "JOIN users peer ON peer.id=pn.peer_id LEFT JOIN peer_nomination_escalations pne ON " .
+                    "JOIN users peer ON peer.id=pn.peer_id LEFT JOIN users suggested ON suggested.id=pn.suggested_peer_id " .
+                    "LEFT JOIN peer_nomination_escalations pne ON " .
                     "pne.nomination_id=pn.id WHERE rp.manager_id=? ORDER BY pn.created_at DESC",
             );
             $stmt->execute([$mid]);
@@ -385,12 +422,22 @@ try {
                     "peer" => $r["peer"],
                     "peerJobTitle" => $r["peer_job_title"],
                     "cycle" => $r["cycle"],
+                    "cycleStatus" => $r["cycle_status"],
+                    "peerDeadline" => $r["peer_deadline"],
+                    "canDecide" => $r["status"] === "pending"
+                        && in_array($r["cycle_status"], ["open", "peer_review"], true)
+                        && !in_array($r["participant_status"], ["manager_submitted", "released"], true)
+                        && (!$r["peer_deadline"] || $r["peer_deadline"] >= date("Y-m-d")),
                     "sharedWork" => $r["shared_work"],
                     "collaborationDetails" => $r["collaboration_details"],
                     "reviewerJustification" => $r["reviewer_justification"],
                     "directKnowledgeConfirmed" => (bool) $r["direct_knowledge_confirmed"],
                     "status" => $r["status"],
                     "decisionReason" => $r["decision_reason"],
+                    "suggestedPeerId" => $r["suggested_peer_id"] !== null ? (int) $r["suggested_peer_id"] : null,
+                    "suggestedPeer" => $r["suggested_peer_name"],
+                    "suggestedPeerJobTitle" => $r["suggested_peer_job_title"],
+                    "suggestionReason" => $r["suggestion_reason"],
                     "decidedAt" => $r["decided_at"],
                     "createdAt" => $r["created_at"],
                     "escalationStatus" => $r["escalation_status"],
@@ -399,6 +446,32 @@ try {
                 ],
                 $stmt->fetchAll(),
             );
+
+            // Replacement suggestions are optional and only shown for rejected
+            // nominations. Candidates follow the same eligibility rules as a
+            // participant-created nomination.
+            foreach ($peerNominations as &$nomination) {
+                $nomination["suggestionOptions"] = [];
+                if ($nomination["status"] !== "pending" || !$nomination["canDecide"]) continue;
+                $candidateStmt = $pdo->prepare(
+                    "SELECT DISTINCT u.id,u.full_name name,u.job_title jobTitle
+                     FROM users u
+                     JOIN role_permissions rperm ON rperm.role_code=u.role
+                     JOIN permissions perm ON perm.id=rperm.permission_id AND perm.permission_code='employee.dashboard'
+                     JOIN peer_nominations current_nom ON current_nom.id=?
+                     JOIN review_participants rp ON rp.id=current_nom.participant_id
+                     WHERE u.is_active=1 AND u.id NOT IN (rp.employee_id,rp.manager_id)
+                       AND NOT EXISTS (SELECT 1 FROM peer_nominations pn WHERE pn.participant_id=rp.id AND pn.peer_id=u.id)
+                       AND NOT EXISTS (SELECT 1 FROM feedback_requests fr WHERE fr.participant_id=rp.id AND fr.respondent_id=u.id AND fr.type='peer')
+                     ORDER BY u.full_name",
+                );
+                $candidateStmt->execute([(int)$nomination["id"]]);
+                $nomination["suggestionOptions"] = array_map(
+                    fn($row) => ["id" => (int)$row["id"], "name" => $row["name"], "jobTitle" => $row["jobTitle"]],
+                    $candidateStmt->fetchAll(),
+                );
+            }
+            unset($nomination);
 
             $stmt = $pdo->prepare(
                 "SELECT g.id,g.employee_id, u.full_name employee,g.title,g.description " .
@@ -591,11 +664,8 @@ try {
             foreach ($employees as $e) {
                 if (
                     $e["participantId"] &&
-                    !in_array(
-                        $e["reviewStatusCode"],
-                        ["manager_submitted", "released"],
-                        true,
-                    )
+                    $e["cycleStatus"] === "manager_review" &&
+                    in_array($e["reviewStatusCode"], ["self_submitted", "peers_complete"], true)
                 ) {
                     $notifications[] = [
                         "id" => "review-" . $e["id"],
@@ -607,7 +677,7 @@ try {
                 }
             }
             foreach ($peerNominations as $n) {
-                if ($n["status"] === "pending") {
+                if ($n["canDecide"]) {
                     $notifications[] = [
                         "id" => "peer-" . $n["id"],
                         "text" =>
@@ -652,7 +722,7 @@ try {
 
             foreach ($employees as &$row) {
                 if (!has_permission($mid, "manager.reviews")) {
-                    foreach (["participantId", "cycleId", "rating", "managerSummary"] as $key) $row[$key] = null;
+                    foreach (["participantId", "cycleId", "rating", "managerSummary", "selfReview"] as $key) $row[$key] = null;
                     $row["review"] = "Unavailable";
                     $row["reviewStatusCode"] = "unavailable";
                 }
@@ -718,7 +788,7 @@ try {
                     [
                         "ok" => false,
                         "error" =>
-                            "The employee self-review must be submitted first",
+                            "The participant must complete their self review before manager review",
                     ],
                     409,
                 );
@@ -846,6 +916,8 @@ try {
             $id = (int) ($in["id"] ?? 0);
             $status = $in["status"] ?? "";
             $reason = trim((string) ($in["reason"] ?? ""));
+            $suggestedPeerId = (int) ($in["suggestedPeerId"] ?? 0);
+            $suggestionReason = trim((string) ($in["suggestionReason"] ?? ""));
             if (!in_array($status, ["approved", "rejected"], true)) {
                 json_response(
                     ["ok" => false, "error" => "Invalid peer decision"],
@@ -855,6 +927,16 @@ try {
             if (strlen($reason) > 1000 || ($status === "rejected" && strlen($reason) < 15)) {
                 json_response(
                     ["ok" => false, "error" => "A rejection reason of 15 to 1,000 characters is required"],
+                    422,
+                );
+            }
+            if ($status !== "rejected") {
+                $suggestedPeerId = 0;
+                $suggestionReason = "";
+            }
+            if ($suggestedPeerId > 0 && (strlen($suggestionReason) < 15 || strlen($suggestionReason) > 1000)) {
+                json_response(
+                    ["ok" => false, "error" => "Explain the replacement suggestion using 15 to 1,000 characters"],
                     422,
                 );
             }
@@ -881,18 +963,42 @@ try {
                 json_response(["ok" => false, "error" => "This nomination already has a decision"], 409);
             }
             if (in_array($nomination["participant_status"], ["manager_submitted", "released"], true)
-                || in_array($nomination["cycle_status"], ["released", "closed"], true)) {
+                || !in_array($nomination["cycle_status"], ["open", "peer_review"], true)) {
                 $pdo->rollBack();
-                json_response(["ok" => false, "error" => "The review is no longer open for peer decisions"], 409);
+                json_response(["ok" => false, "error" => "Peer decisions are closed for this review cycle"], 409);
             }
             if ($status === "approved" && $nomination["peer_deadline"] && $nomination["peer_deadline"] < date("Y-m-d")) {
                 $pdo->rollBack();
                 json_response(["ok" => false, "error" => "The peer feedback deadline has passed"], 409);
             }
+            if ($status === "rejected" && $suggestedPeerId > 0) {
+                $candidate = $pdo->prepare(
+                    "SELECT u.id FROM users u
+                     JOIN role_permissions rperm ON rperm.role_code=u.role
+                     JOIN permissions perm ON perm.id=rperm.permission_id AND perm.permission_code='employee.dashboard'
+                     JOIN review_participants rp ON rp.id=?
+                     WHERE u.id=? AND u.is_active=1 AND u.id NOT IN (rp.employee_id,rp.manager_id)
+                       AND NOT EXISTS (SELECT 1 FROM peer_nominations pn WHERE pn.participant_id=rp.id AND pn.peer_id=u.id)
+                       AND NOT EXISTS (SELECT 1 FROM feedback_requests fr WHERE fr.participant_id=rp.id AND fr.respondent_id=u.id AND fr.type='peer')
+                     LIMIT 1",
+                );
+                $candidate->execute([(int)$nomination["participant_id"], $suggestedPeerId]);
+                if (!$candidate->fetchColumn()) {
+                    $pdo->rollBack();
+                    json_response(["ok"=>false,"error"=>"The suggested replacement is not an eligible peer reviewer"],422);
+                }
+            }
             $stmt = $pdo->prepare(
-                "UPDATE peer_nominations SET status=?,decided_by=?,decision_reason=?,decided_at=NOW() WHERE id=?",
+                "UPDATE peer_nominations SET status=?,decided_by=?,decision_reason=?,suggested_peer_id=?,suggestion_reason=?,decided_at=NOW() WHERE id=?",
             );
-            $stmt->execute([$status, $manager["id"], $reason !== "" ? $reason : null, $id]);
+            $stmt->execute([
+                $status,
+                $manager["id"],
+                $reason !== "" ? $reason : null,
+                $suggestedPeerId > 0 ? $suggestedPeerId : null,
+                $suggestionReason !== "" ? $suggestionReason : null,
+                $id,
+            ]);
             if ($status === "approved") {
                 $stmt = $pdo->prepare(
                     "INSERT INTO feedback_requests(participant_id,respondent_id,type,status) VALUES(?,?,'peer','pending') " .
