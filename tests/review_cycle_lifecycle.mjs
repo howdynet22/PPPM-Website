@@ -119,7 +119,8 @@ assert.equal(managerData.feedback[String(alex.user.id)].responses,3);
 
 await riley.call('hr_cycle_advance',{id:Number(created.id)});
 await refreshFromDatabase(managerUi.page);
-await waitText(managerUi.page,'#reviewTable','Ready to review');
+await managerUi.page.waitForSelector('#reviewTable button.primary:not([disabled])');
+await waitText(managerUi.page,'#reviewTable','Review');
 const refreshedManager=await casey.call('dashboard');
 const ready=refreshedManager.employees.find(row=>Number(row.id)===Number(alex.user.id));
 await casey.call('submit_review',{
@@ -128,7 +129,7 @@ await casey.call('submit_review',{
   competencies:refreshedManager.competencies.map(c=>({competencyId:Number(c.id),score:4,comment:`Manager evidence for ${c.name}`})),
 });
 await refreshFromDatabase(managerUi.page);
-await waitText(managerUi.page,'#reviewTable','Submitted');
+await waitText(managerUi.page,'#reviewTable','Manager submitted');
 
 await riley.call('hr_cycle_advance',{id:Number(created.id)});
 await refreshFromDatabase(employeeUi.page);
