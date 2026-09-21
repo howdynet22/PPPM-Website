@@ -62,7 +62,7 @@
       <div class="card kpi"><span class="label">Development steps</span><strong class="value">${complete}/${allSteps.length}</strong><span class="muted">Completed steps</span></div>
       <div class="card kpi"><span class="label">Feedback to submit</span><strong class="value">${pending}</strong><a class="btn small" href="#feedback">View requests</a></div></div>${reviewPrompt}
       <section id="development" class="workspace-section"><div class="section-head"><div><h2>My development plans</h2><p class="muted">Open a goal to record progress, blockers or completion.</p></div><button class="btn primary" data-create="pdp">+ Development goal</button></div>
-      ${data.plans.map(p=>`<article class="card plan-card"><div class="section-head"><div><h3>${esc(p.summary || 'Development plan')}</h3><p class="muted">Set by ${esc(p.owner)}</p></div>${p.status==='cancelled'?'<span class="status">Cancelled</span>':''}</div><div class="personal-items">${p.actions.map(itemCard).join('') || empty('This plan has no goals yet.')}</div></article>`).join('') || empty('No development plan yet. Add a goal to start your plan.')}
+      ${data.plans.map(p=>`<article class="card plan-card"><div class="section-head"><div><h3>${esc(p.summary || 'Development plan')}</h3><p class="muted">Set by ${esc(p.owner)}</p></div><span class="status">${label(p.status)}</span></div>${p.status==='draft'?`<div class="notice"><strong>Your agreement is required</strong><p>Confirm this development plan or ask the manager to revise it.</p><button class="btn small primary" data-agree-pdp="${p.id}">Agree</button> <button class="btn small" data-change-pdp="${p.id}">Request changes</button></div>`:''}<div class="personal-items">${p.actions.map(itemCard).join('') || empty('This plan has no goals yet.')}</div></article>`).join('') || empty('No development plan yet. Add a goal to start your plan.')}
       <div class="section-head"><h2>My goals</h2><button class="btn" data-create="goal">+ Goal</button></div><div class="card">${data.goals.map(itemCard).join('') || empty('No personal goals yet.')}</div></section>
       <section id="improvement" class="workspace-section"><h2>My improvement plans</h2>${data.pips.map(p=>`<article class="card"><div class="section-head"><h3>${esc(p.reason)}</h3><span class="status">${label(p.status)}</span></div><p class="muted">${esc(p.start_date)} to ${esc(p.end_date)} · Manager: ${esc(p.manager)} · HR owner: ${esc(p.hr_owner)}</p>
       ${p.objectives.map(itemCard).join('')}${p.checkins.length?`<details><summary>Check-ins (${p.checkins.length})</summary>${p.checkins.map(c=>`<p>${esc(c.notes)}<br><small class="muted">${esc(c.author)} · ${esc(c.checkin_date)}</small></p>`).join('')}</details>`:''}${p.outcome_note?`<p>${esc(p.outcome_note)}</p>`:''}</article>`).join('') || empty('No improvement plans assigned.')}</section>
@@ -71,7 +71,7 @@
       <div class="card"><div class="section-head"><div><h3>My peer reviewer nominations</h3><p class="muted">Nominate someone who directly observed your work during an active review cycle.</p></div><button class="btn primary" data-nominate-peer>+ Nominate peer</button></div>
       ${(data.nominations || []).map(nominationCard).join('') || empty('No peer reviewers nominated yet.')}</div>
       <div class="card"><h3>My feedback requests</h3>
-      ${data.requests.map(r=>`<div class="personal-item section-head"><div><strong>${r.type==='self'?'Self review':`Feedback for ${esc(r.employee)}`}</strong><p class="muted">${esc(cycleName(r.cycle))} · ${label(r.status)}${r.due?` · Due ${esc(r.due)}`:''}</p>${!r.canSubmit && r.status==='pending'?'<p class="muted">The submission window is closed or has not opened.</p>':''}</div><button class="btn small ${r.canSubmit?'primary':''}" data-feedback="${r.id}">${r.canSubmit?'Open form':'View form'}</button></div>`).join('') || empty('No feedback requests assigned.')}</div>
+      ${data.requests.map(r=>`<div class="personal-item section-head"><div><strong>${r.type==='self'?'Self review':`Feedback for ${esc(r.employee)}`}</strong><p class="muted">${esc(cycleName(r.cycle))} · ${label(r.status)}${r.due?` · Due ${esc(r.due)}`:''}${r.late?' · Overdue (still open)':''}</p>${!r.canSubmit && r.status==='pending'?'<p class="muted">The submission window is closed or has not opened.</p>':''}</div><button class="btn small ${r.canSubmit?'primary':''}" data-feedback="${r.id}">${r.canSubmit?'Open form':'View form'}</button></div>`).join('') || empty('No feedback requests assigned.')}</div>
       ${data.reviews.map(r=>`<article class="card"><h3>${esc(cycleName(r.cycle))}</h3><p><span class="status">${label(r.status)}</span></p>${r.status==='released'?`<p>Final rating: <strong>${r.final_rating==null?'Not rated':`${Number(r.final_rating).toFixed(1)} / 5`}</strong></p><p>${esc(r.manager_summary || '')}</p><h4>Anonymous peer feedback</h4>${r.feedback.length?r.feedback.map(f=>`<p>${esc(f.competency)} <strong>${Number(f.avg_score).toFixed(1)} / 5</strong></p>`).join(''):`<p class="notice">Anonymous feedback is available after at least ${Number(r.min_peers)} peer responses.</p>`}`:'<p class="notice">Your results will appear when the review is formally released.</p>'}</article>`).join('')}</section>`;
     content.querySelectorAll('[data-work-id]').forEach(b=>b.onclick=()=>openWorkItem(b.dataset.workType,Number(b.dataset.workId)));
     content.querySelectorAll('[data-create]').forEach(b=>b.onclick=()=>createForm(b.dataset.create));
@@ -79,7 +79,16 @@
     content.querySelector('[data-nominate-peer]')?.addEventListener('click',nominationForm);
     content.querySelectorAll('[data-escalate-nomination]').forEach(b=>b.onclick=()=>escalationForm(Number(b.dataset.escalateNomination)));
     content.querySelectorAll('[data-use-suggested-peer]').forEach(b=>b.onclick=()=>nominationForm({participantId:Number(b.dataset.participant),peerId:Number(b.dataset.useSuggestedPeer)}));
+    content.querySelectorAll('[data-agree-pdp]').forEach(b=>b.onclick=()=>agreePdp(Number(b.dataset.agreePdp)));
+    content.querySelectorAll('[data-change-pdp]').forEach(b=>b.onclick=()=>requestPdpChanges(Number(b.dataset.changePdp)));
     updatePersonalNavigation();
+  }
+  async function agreePdp(id){
+    try{await request('agree_pdp',{id});await refresh();message.textContent='Development plan agreed.';}catch(error){message.textContent=error.message;}
+  }
+  function requestPdpChanges(id){
+    formDialog('Request PDP changes',`<form class="workspace-form"><label>Changes needed<textarea name="note" required minlength="15" maxlength="2000" rows="5"></textarea></label><button class="btn primary" type="submit">Send request</button></form>`);
+    const form=dialog.querySelector('form');form.onsubmit=e=>{e.preventDefault();saveForm(form,'request_pdp_changes',{id,note:form.elements.note.value.trim()});};
   }
   async function refresh() {
     if (busy || document.hidden) return;

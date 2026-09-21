@@ -49,7 +49,7 @@ function workspace_pips(int $viewer, string $scope): array
     $plans = workspace_rows("SELECT p.id,p.reason,p.status,p.start_date,p.end_date,p.outcome_note,
         e.full_name employee,m.full_name manager,h.full_name hr_owner
         FROM pips p JOIN users e ON e.id=p.employee_id JOIN users m ON m.id=p.manager_id
-        JOIN users h ON h.id=p.hr_owner_id WHERE p.$ownerColumn=? ORDER BY p.end_date", [$viewer]);
+        JOIN users h ON h.id=p.hr_owner_id WHERE p.$ownerColumn=?".($scope==='employee'?" AND p.status<>'draft'":"")." ORDER BY p.end_date", [$viewer]);
     foreach ($plans as &$plan) {
         $plan['objectives'] = array_map(fn($r) => workspace_item('pip_objective', $r, $viewer),
             workspace_rows("SELECT id,objective title,success_criteria description,due_date due,status FROM pip_objectives WHERE pip_id=? ORDER BY id", [$plan['id']]));
@@ -62,7 +62,7 @@ function workspace_personal(int $viewer): array
 {
     $goals = array_map(fn($r) => workspace_item('goal', $r, $viewer), workspace_rows(
         'SELECT g.id,g.title,g.description,g.due_date due,g.status,u.full_name owner FROM goals g JOIN users u ON u.id=g.manager_id WHERE g.employee_id=? ORDER BY g.due_date,g.id', [$viewer]));
-    $plans = workspace_rows('SELECT p.id,p.summary,p.status,u.full_name owner FROM pdps p JOIN users u ON u.id=p.manager_id WHERE p.employee_id=? ORDER BY p.id DESC', [$viewer]);
+    $plans = workspace_rows('SELECT p.id,p.summary,p.status,p.agreed_at,u.full_name owner FROM pdps p JOIN users u ON u.id=p.manager_id WHERE p.employee_id=? ORDER BY p.id DESC', [$viewer]);
     foreach ($plans as &$plan) {
         $plan['actions'] = array_map(fn($r) => workspace_item('pdp_action', $r, $viewer), workspace_rows(
             'SELECT pa.id,pa.title,pa.description,pa.due_date due,pa.status,p.status plan_status FROM pdp_actions pa JOIN pdps p ON p.id=pa.pdp_id WHERE pa.pdp_id=? ORDER BY pa.due_date,pa.id', [$plan['id']]));
@@ -96,12 +96,16 @@ function workspace_personal(int $viewer): array
     }
     unset($review);
     // Only the current user's assigned forms; no respondent identities or raw peer responses.
-    $requests = workspace_rows("SELECT fr.id,fr.type,fr.status,rp.status participant_status,rc.name cycle,rc.status cycle_status,
+    $requests = workspace_rows("SELECT fr.id,fr.participant_id,fr.type,fr.status,fr.response_deadline,rp.status participant_status,rc.name cycle,rc.status cycle_status,
         e.full_name employee,IF(fr.type='self',rc.self_deadline,rc.peer_deadline) due
         FROM feedback_requests fr JOIN review_participants rp ON rp.id=fr.participant_id
         JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users e ON e.id=rp.employee_id
         WHERE fr.respondent_id=? AND fr.type IN ('self','peer') ORDER BY due,fr.id", [$viewer]);
-    foreach ($requests as &$request) $request['canSubmit'] = personal_feedback_open($request);
+    foreach ($requests as &$request) {
+        $capability = feedback_request_submit_capability($request);
+        $request['canSubmit'] = $capability['allowed'];
+        $request['late'] = $capability['late'];
+    }
 
     // Employees see only nominations for their own review participants. Manager
     // decisions and HR escalation state are visible, but no private peer response is exposed.
@@ -158,10 +162,7 @@ function workspace_personal(int $viewer): array
 
 function personal_feedback_open(array $request): bool
 {
-    return $request['status'] === 'pending'
-        && in_array($request['cycle_status'], $request['type'] === 'self' ? ['open'] : ['peer_review'], true)
-        && !in_array($request['participant_status'], ['manager_submitted','released'], true)
-        && (!$request['due'] || $request['due'] >= date('Y-m-d'));
+    return feedback_request_submit_capability($request)['allowed'];
 }
 
 function workspace_api(string $action): never
@@ -244,6 +245,24 @@ function workspace_api(string $action): never
         $pdo->commit();
         json_response(['ok'=>true]);
     }
+    if (in_array($action,['agree_pdp','request_pdp_changes'],true)) {
+        require_permission('employee.dashboard'); require_method('POST'); require_csrf();
+        $in=input();$id=(int)($in['id']??0);$note=trim((string)($in['note']??''));
+        $pdo->beginTransaction();
+        $stmt=$pdo->prepare('SELECT id,status,manager_id FROM pdps WHERE id=? AND employee_id=? FOR UPDATE');$stmt->execute([$id,$viewer]);$plan=$stmt->fetch();
+        if(!$plan){$pdo->rollBack();json_response(['ok'=>false,'error'=>'Development plan not found'],404);}
+        if($action==='agree_pdp'){
+            if($plan['status']!=='draft'){$pdo->rollBack();json_response(['ok'=>false,'error'=>'Only a draft plan can be agreed'],409);}
+            $pdo->prepare("UPDATE pdps SET status='agreed',agreed_at=NOW(),agreed_by=? WHERE id=?")->execute([$viewer,$id]);
+            audit($viewer,'AGREE_PDP','pdp',$id,'Employee agreed development plan');
+        }else{
+            if($plan['status']!=='draft'||strlen($note)<15||strlen($note)>2000){$pdo->rollBack();json_response(['ok'=>false,'error'=>'A change request of 15 to 2,000 characters is required for a draft plan'],422);}
+            try{$pdo->prepare('INSERT INTO pdp_change_requests(pdp_id,requested_by,note) VALUES(?,?,?)')->execute([$id,$viewer,$note]);}
+            catch(PDOException $e){$pdo->rollBack();json_response(['ok'=>false,'error'=>'A change request is already pending for this plan'],409);}
+            audit($viewer,'REQUEST_PDP_CHANGES','pdp',$id,substr($note,0,255));
+        }
+        $pdo->commit();json_response(['ok'=>true]);
+    }
     if ($action === 'create_peer_nomination') {
         require_permission('employee.dashboard');
         require_method('POST'); require_csrf();
@@ -325,18 +344,21 @@ function workspace_api(string $action): never
         $in = $write ? input() : $_GET;
         $id = (int) ($in['id'] ?? 0);
         if ($write) $pdo->beginTransaction();
-        $request = workspace_rows("SELECT fr.id,fr.participant_id,fr.type,fr.status,rc.status cycle_status,rp.status participant_status,rc.name cycle,e.full_name employee,
+        $request = workspace_rows("SELECT fr.id,fr.participant_id,fr.type,fr.status,fr.response_deadline,rp.cycle_id,rc.status cycle_status,rp.status participant_status,rc.name cycle,e.full_name employee,
             IF(fr.type='self',rc.self_deadline,rc.peer_deadline) due
             FROM feedback_requests fr JOIN review_participants rp ON rp.id=fr.participant_id
             JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users e ON e.id=rp.employee_id
             WHERE fr.id=? AND fr.respondent_id=? AND fr.type IN ('self','peer')".($write?' FOR UPDATE':''),[$id,$viewer])[0] ?? null;
         if (!$request) json_response(['ok'=>false,'error'=>'Feedback request not found'],404);
-        $competencies = workspace_rows('SELECT id,name FROM competencies WHERE is_active=1 ORDER BY id');
+        $competencies = cycle_competencies((int)$request['cycle_id']);
         if (!$write) {
-            $request['canSubmit'] = personal_feedback_open($request);
+            $capability = feedback_request_submit_capability($request);
+            $request['canSubmit'] = $capability['allowed'];
+            $request['late'] = $capability['late'];
             json_response(['ok'=>true,'request'=>$request,'competencies'=>$competencies,'ratings'=>workspace_rows('SELECT competency_id,score,comment FROM feedback_ratings WHERE request_id=?',[$id])]);
         }
-        if (!personal_feedback_open($request)) { $pdo->rollBack(); json_response(['ok'=>false,'error'=>'This feedback request is submitted or outside its submission window'],409); }
+        $capability = feedback_request_submit_capability($request);
+        if (!$capability['allowed']) { $pdo->rollBack(); json_response(['ok'=>false,'error'=>$capability['reason']],409); }
         $ratings = $in['ratings'] ?? [];
         if (!is_array($ratings) || !$competencies || count($ratings)!==count($competencies)) json_response(['ok'=>false,'error'=>'Rate every competency'],422);
         $byId = [];
@@ -356,7 +378,7 @@ function workspace_api(string $action): never
         if ($request['type']==='self') $pdo->prepare("UPDATE review_participants SET status='self_submitted' WHERE id=? AND status='not_started'")->execute([$request['participant_id']]);
         $pdo->prepare("UPDATE review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id SET rp.status='peers_complete'
             WHERE rp.id=? AND rp.status='self_submitted' AND (SELECT COUNT(*) FROM feedback_requests fr WHERE fr.participant_id=rp.id AND fr.type='peer' AND fr.status='submitted')>=rc.min_peers")->execute([$request['participant_id']]);
-        audit($viewer,'SUBMIT_PERSONAL_FEEDBACK','feedback_request',$id,'Submitted '.$request['type'].' feedback');
+        audit($viewer,'SUBMIT_PERSONAL_FEEDBACK','feedback_request',$id,'Submitted '.($capability['late']?'late ':'').$request['type'].' feedback');
         $pdo->commit();
         json_response(['ok'=>true]);
     }

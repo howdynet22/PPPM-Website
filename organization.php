@@ -185,6 +185,20 @@ function assign_primary_manager(
         );
         $stmt->execute([$employeeId, $managerId, $effectiveFrom, $createdBy, $reason]);
         $id = (int) $pdo->lastInsertId();
+        if($current){
+            $previous=(int)$current['reports_to_employee_id'];
+            $recordSets=[
+                ['review_participant','review_participants','action_manager_id',"employee_id={$employeeId} AND status<>'released'"],
+                ['goal','goals','manager_id',"employee_id={$employeeId} AND status NOT IN ('completed','missed')"],
+                ['pdp','pdps','manager_id',"employee_id={$employeeId} AND status NOT IN ('completed','cancelled')"],
+                ['pip','pips','manager_id',"employee_id={$employeeId} AND status NOT IN ('successful','unsuccessful','closed')"],
+            ];
+            foreach($recordSets as [$recordType,$table,$column,$where]){
+                $pdo->prepare("INSERT INTO active_record_reassignments(record_type,record_id,previous_owner_id,new_owner_id,reason,reassigned_by) SELECT ?,id,?,?,?,? FROM $table WHERE $column=? AND $where")
+                    ->execute([$recordType,$previous,$managerId,$reason?:'Primary manager changed',$createdBy,$previous]);
+                $pdo->prepare("UPDATE $table SET $column=? WHERE $column=? AND $where")->execute([$managerId,$previous]);
+            }
+        }
         audit($createdBy, "CHANGE_PRIMARY_MANAGER", "reporting_relationship", $id,
             "Employee {$employeeId}; manager {$managerId}; effective {$effectiveFrom}" .
             ($reason ? "; reason: " . substr($reason, 0, 150) : ""));

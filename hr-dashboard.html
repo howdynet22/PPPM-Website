@@ -30,6 +30,9 @@
         <button class="nav-btn" data-page="cycles" data-permission="hr.reports">
           Review cycles
         </button>
+        <button class="nav-btn" data-page="competencies" data-permission="hr.competencies.manage">
+          Competencies
+        </button>
         <button class="nav-btn" data-page="reports" data-permission="hr.reports">
           Reports &amp; insights
         </button>
@@ -277,8 +280,8 @@
         <p>Participation, outstanding forms and average released ratings.</p>
       </div>
 
-      <button class="btn" id="startCycleBtn">
-        Start review cycle
+      <button class="btn" id="startCycleBtn" data-permission="hr.cycles.manage">
+        Create cycle draft
       </button>
     </div>
 
@@ -299,6 +302,12 @@
         <tbody id="cyclesTable"></tbody>
       </table>
     </div>
+  </div>
+ </section>
+ <section class="page" id="page-competencies" data-permission="hr.competencies.manage">
+  <div class="card">
+   <div class="section-head"><div><h2>Review competencies</h2><p>Changes apply only to cycles published afterwards.</p></div><button class="btn" id="addCompetencyBtn">Add competency</button></div>
+   <div class="table-wrap"><table class="table"><thead><tr><th>Competency</th><th>Status</th><th>Action</th></tr></thead><tbody id="competenciesTable"></tbody></table></div>
   </div>
  </section>
 
@@ -338,8 +347,8 @@
               <div id="reportDevelopment" class="metric-list"></div>
               <div class="section-head spaced-top">
                 <div>
-                  <h2>Most requested skills</h2>
-                  <p>Open development actions grouped by the skill they target.</p>
+                  <h2>Development actions by skill</h2>
+                  <p>This counts open PDP actions linked to a skill; it is not an employee-versus-role skill-gap assessment.</p>
                 </div>
               </div>
               <div id="reportSkills" class="metric-list"></div>

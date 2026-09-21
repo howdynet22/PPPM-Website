@@ -341,6 +341,7 @@
            <select id="userManager">${managerOptions}</select>
            <small class="muted">Sets a primary reporting line from today.</small>
          </div>
+         <div class="field"><label><input id="userReviewEligible" type="checkbox" ${record&&Number(record.review_eligible)===0?'':'checked'}> Include in performance review cycles</label><small class="muted">Eligible people must have an active primary manager before a cycle can be published.</small></div>
        </div>
        ${record ? "" : '<p class="modal-notice">A temporary password is generated and shown once after saving.</p>'}`,
       `<button class="btn" onclick="closeModal()">Cancel</button>
@@ -378,6 +379,7 @@
       teamId: $("#userTeam")?.value || "",
       dateJoined: $("#userDateJoined")?.value || "",
       managerId: $("#userManager")?.value || "",
+      reviewEligible: $("#userReviewEligible")?.checked ?? true,
     };
     // A disabled select submits nothing, so keep the account's current role.
     if (!payload.role && Number(id)) {

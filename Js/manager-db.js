@@ -572,6 +572,7 @@
             <td>
               <strong>${esc(action.title)}</strong>
               <div class="muted">${esc(action.description || "")}</div>
+              ${action.changeRequest?`<div class="notice warn"><strong>Employee requested changes</strong><p>${esc(action.changeRequest)}</p></div>`:''}
             </td>
             <td>${action.due}</td>
             <td><strong>${stepCounts(action.steps).label}</strong></td>
@@ -914,6 +915,7 @@
         method: "POST",
         body: JSON.stringify({
           participantId: e.participantId,
+          version: e.reviewVersion,
           rating: Number($("#reviewRating").value),
           summary: $("#reviewSummary").value.trim(),
           competencies,
@@ -1706,18 +1708,11 @@
       toast(err.message);
     }
   }
-  // Open the PIP outcome form with valid workflow transitions.
+  // Managers recommend an outcome; the assigned HR owner governs transitions.
   function changePipStatus(id) {
     const p = data.pips.find((x) => x.id === id);
     if (!p) return;
-    const allowed = {
-      draft: ["draft", "active", "closed"],
-      active: ["active", "extended", "successful", "unsuccessful", "closed"],
-      extended: ["extended", "successful", "unsuccessful", "closed"],
-      successful: ["successful", "closed"],
-      unsuccessful: ["unsuccessful", "closed"],
-      closed: ["closed"],
-    }[p.status] || [p.status];
+    const allowed = [p.status];
     const statusOptions = allowed
       .map(
         (status) => `<option ${p.status === status ? "selected" : ""}>
@@ -1727,23 +1722,23 @@
       .join("");
 
     openModal(
-      "Update PIP outcome",
+      "Recommend PIP outcome",
       `<div class="form-grid">
         <div class="field">
-          <label>Status</label>
+          <label>Current HR-governed status</label>
           <select id="pipStatus">${statusOptions}</select>
         </div>
         <div class="field full">
-          <label>Outcome note</label>
+          <label>Recommendation to HR</label>
           <textarea
             id="pipOutcomeNote"
-            placeholder="Required when extending, completing or closing a PIP"
+            placeholder="Describe the recommended extension or outcome and supporting evidence"
           ></textarea>
         </div>
       </div>`,
       `<button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn primary" onclick="savePipStatus(${id})">
-        Save outcome
+        Send recommendation
       </button>`,
     );
   }
