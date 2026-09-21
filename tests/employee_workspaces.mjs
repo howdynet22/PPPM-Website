@@ -61,6 +61,27 @@ const approvedNomination=await alex.call('create_peer_nomination',{
 await casey.call('decide_peer',{id:approvedNomination.id,status:'approved',reason:'The shared work provides sufficient direct evidence.'});
 const quinnRequests=(await quinn.call('workspace&scope=employee')).data.requests;
 assert(quinnRequests.some(request=>request.type==='peer'&&request.employee==='Alex Morgan'));
+const quinnPeerRequest=quinnRequests.find(request=>request.type==='peer'&&request.employee==='Alex Morgan');
+assert.equal((await quinn.call(`feedback_form&id=${quinnPeerRequest.id}`)).request.canSubmit,true,'An approved peer request must be writable immediately while the cycle is open');
+
+// Access role is not organizational identity: elevated accounts use exactly
+// the same approved peer form when they have Personal workspace permission.
+for(const [label,reviewer] of [['administrator',admin],['HR lead',hrLead],['HR partner',hr],['HR coordinator',coordinator],['manager',jordan]]){
+  own=(await alex.call('workspace&scope=employee')).data;
+  const option=own.nominationOptions.find(cycle=>cycle.peers.some(peer=>Number(peer.id)===Number(reviewer.user.id)));
+  assert(option,`${label} should be eligible to provide peer feedback when they observed the work`);
+  const nomination=await alex.call('create_peer_nomination',{
+    participantId:option.participantId,peerId:reviewer.user.id,sharedWork:`Shared delivery work with ${label}`,
+    collaborationDetails:`This ${label} worked directly with Alex on planning, delivery verification and the final handover for the shared release.`,
+    reviewerJustification:`This ${label} directly observed Alex's communication, collaboration, problem solving and delivery quality.`,
+    directKnowledgeConfirmed:true,
+  });
+  await casey.call('decide_peer',{id:nomination.id,status:'approved',reason:'The reviewer directly observed substantial work during the review period.'});
+  const requests=(await reviewer.call('workspace&scope=employee')).data.requests;
+  const assigned=requests.find(request=>request.type==='peer'&&request.employee==='Alex Morgan');
+  assert(assigned,`${label} did not receive the approved peer request`);
+  assert.equal((await reviewer.call(`feedback_form&id=${assigned.id}`)).request.canSubmit,true,`${label} received a read-only approved peer form`);
+}
 await alex.call('create_peer_nomination',{
   participantId:approvalCycle.participantId,peerId:quinn.user.id,sharedWork:'Duplicate onboarding review',
   collaborationDetails:'This duplicate nomination repeats the same shared work and should not create another database record.',
