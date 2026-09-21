@@ -7,20 +7,40 @@
   const cycleName=name=>name==='Demo previous check-in'?'Previous Performance Review':name;
   function nominationCard(item) {
     const decision=item.status==='rejected'
-      ? `<div class="notice warn"><strong>Manager declined this nomination</strong><p>${esc(item.decisionReason || 'No reason was recorded.')}</p></div>`
+      ? `<div class="notice warn"><strong>Manager declined this nomination</strong><p>${esc(item.decisionReason || 'No reason was recorded.')}</p><p>This reviewer no longer counts toward your required peer nominations. Nominate a replacement if you are below the cycle minimum.</p></div>`
       : item.status==='approved'
         ? '<p class="notice">Approved. The peer feedback request is available to the reviewer.</p>'
         : '<p class="muted">Waiting for your manager to review the evidence.</p>';
     const escalation=item.escalationStatus
       ? `<div class="notice"><strong>Forwarded to HR</strong><p>${esc(item.escalationReason || '')}</p><p class="muted">Status: ${label(item.escalationStatus)}</p></div>`
       : '';
-    const escalate=item.status==='rejected'&&!item.escalationStatus
+    const escalate=item.canEscalate
       ? `<button class="btn small" data-escalate-nomination="${item.id}">Forward decision to HR</button>`
+      : '';
+    const suggestion=item.status==='rejected' && item.suggestedPeerId
+      ? `<div class="notice"><strong>Manager suggested a replacement</strong><p>${esc(item.suggestedPeer)}${item.suggestedPeerJobTitle?` · ${esc(item.suggestedPeerJobTitle)}`:''}</p><p>${esc(item.suggestionReason || 'Your manager believes this person is better placed to provide relevant feedback.')}</p><button class="btn small primary" data-use-suggested-peer="${item.suggestedPeerId}" data-participant="${item.participantId}">Nominate ${esc(item.suggestedPeer)}</button></div>`
       : '';
     return `<article class="personal-item nomination-item"><div class="section-head"><div><h4>${esc(item.peer)}</h4><p class="muted">${esc(item.peerJobTitle || 'Job title not set')} · ${esc(cycleName(item.cycle))}</p></div><span class="status">${label(item.status)}</span></div>
       <p><strong>Shared work:</strong> ${esc(item.sharedWork)}</p>
       <details><summary>View nomination evidence</summary><p><strong>Work completed together</strong><br>${esc(item.collaborationDetails)}</p><p><strong>Why this peer can review the work</strong><br>${esc(item.reviewerJustification)}</p></details>
-      ${decision}${escalation}${escalate}</article>`;
+      ${decision}${suggestion}${escalation}${escalate}</article>`;
+  }
+  function peerRequirementCard(review) {
+    if(!['open','peer_review'].includes(review.cycle_status)) return '';
+    const required=Number(review.min_peers)||3;
+    const assigned=Number(review.peerAssigned)||0;
+    const pending=Number(review.peerPendingNominations)||0;
+    const responses=Number(review.peerResponses)||0;
+    const active=Number(review.peerNominationActive)||0;
+    const shortfall=Math.max(0,required-active);
+    const approvalShortfall=Math.max(0,required-assigned);
+    let message='';
+    if(shortfall>0) message=`You must nominate ${shortfall} more peer reviewer${shortfall===1?'':'s'} for this cycle.`;
+    else if(approvalShortfall>0) message=`You have nominated enough peers, but ${approvalShortfall} more approval${approvalShortfall===1?' is':'s are'} still required before HR can open peer review.`;
+    else message='Your required peer reviewers are approved.';
+    return `<article class="card"><div class="section-head"><div><h3>${esc(cycleName(review.cycle))} — required peer nominations</h3><p class="muted">At least ${required} approved peer reviewers are required. Rejected nominations do not count and must be replaced.</p></div><span class="status ${assigned>=required?'green':'amber'}">${assigned}/${required} approved</span></div>
+      <div class="detail-grid"><div><span class="muted">Active nominations</span><strong>${active}/${required}</strong></div><div><span class="muted">Awaiting manager decision</span><strong>${pending}</strong></div><div><span class="muted">Peer responses received</span><strong>${responses}</strong></div><div><span class="muted">Anonymous results</span><strong>${responses>=required?'Available at release':`Locked until ${required} responses`}</strong></div></div>
+      <p class="notice ${shortfall>0?'warn':''}">${esc(message)}</p></article>`;
   }
   function itemCard(item) {
     return `<article class="personal-item"><div class="section-head"><div><h3>${esc(item.title)}</h3><p class="muted">Due ${esc(item.due || 'Not set')}${item.owner?` · Set by ${esc(item.owner)}`:''}</p></div>
@@ -30,18 +50,24 @@
     const activeActions=data.plans.filter(p=>p.status!=='cancelled').flatMap(p=>p.actions.filter(a=>a.status!=='cancelled'));
     const allSteps=activeActions.flatMap(a=>a.steps);
     const complete=allSteps.filter(s=>s.completed).length;
-    const activeGoals=data.goals.filter(g=>g.progress.status!=='completed').length;
+    const activeGoals=data.goals.filter(g=>g.progress.status!=='completed').length
+      + activeActions.filter(action=>action.progress.status!=='completed').length;
     const pending=data.requests.filter(r=>r.canSubmit).length;
+    const reviewAction=(data.reviews || []).find(r=>['open','peer_review'].includes(r.cycle_status) && (Number(r.peerNominationShortfall)>0 || Number(r.peerApprovalShortfall)>0));
+    const reviewPrompt=reviewAction
+      ? `<div class="notice warn"><div class="section-head"><div><strong>Review action required — ${esc(cycleName(reviewAction.cycle))}</strong><p>${Number(reviewAction.peerNominationShortfall)>0?`Nominate ${Number(reviewAction.peerNominationShortfall)} more peer reviewer${Number(reviewAction.peerNominationShortfall)===1?'':'s'} so you keep at least ${Number(reviewAction.min_peers)||3} active nominations.`:`You have nominated enough peers. Your manager still needs to approve ${Number(reviewAction.peerApprovalShortfall)} reviewer${Number(reviewAction.peerApprovalShortfall)===1?'':'s'} before the cycle can progress.`}</p></div><a class="btn small primary" href="#feedback">Open review actions</a></div></div>`
+      : '';
     content.innerHTML=`<div class="grid kpis employee-kpis">
       <div class="card kpi"><span class="label">Active goals</span><strong class="value">${activeGoals}</strong></div>
       <div class="card kpi"><span class="label">Development steps</span><strong class="value">${complete}/${allSteps.length}</strong><span class="muted">Completed steps</span></div>
-      <div class="card kpi"><span class="label">Feedback to submit</span><strong class="value">${pending}</strong><a class="btn small" href="#feedback">View requests</a></div></div>
+      <div class="card kpi"><span class="label">Feedback to submit</span><strong class="value">${pending}</strong><a class="btn small" href="#feedback">View requests</a></div></div>${reviewPrompt}
       <section id="development" class="workspace-section"><div class="section-head"><div><h2>My development plans</h2><p class="muted">Open a goal to record progress, blockers or completion.</p></div><button class="btn primary" data-create="pdp">+ Development goal</button></div>
       ${data.plans.map(p=>`<article class="card plan-card"><div class="section-head"><div><h3>${esc(p.summary || 'Development plan')}</h3><p class="muted">Set by ${esc(p.owner)}</p></div>${p.status==='cancelled'?'<span class="status">Cancelled</span>':''}</div><div class="personal-items">${p.actions.map(itemCard).join('') || empty('This plan has no goals yet.')}</div></article>`).join('') || empty('No development plan yet. Add a goal to start your plan.')}
       <div class="section-head"><h2>My goals</h2><button class="btn" data-create="goal">+ Goal</button></div><div class="card">${data.goals.map(itemCard).join('') || empty('No personal goals yet.')}</div></section>
       <section id="improvement" class="workspace-section"><h2>My improvement plans</h2>${data.pips.map(p=>`<article class="card"><div class="section-head"><h3>${esc(p.reason)}</h3><span class="status">${label(p.status)}</span></div><p class="muted">${esc(p.start_date)} to ${esc(p.end_date)} · Manager: ${esc(p.manager)} · HR owner: ${esc(p.hr_owner)}</p>
       ${p.objectives.map(itemCard).join('')}${p.checkins.length?`<details><summary>Check-ins (${p.checkins.length})</summary>${p.checkins.map(c=>`<p>${esc(c.notes)}<br><small class="muted">${esc(c.author)} · ${esc(c.checkin_date)}</small></p>`).join('')}</details>`:''}${p.outcome_note?`<p>${esc(p.outcome_note)}</p>`:''}</article>`).join('') || empty('No improvement plans assigned.')}</section>
       <section id="feedback" class="workspace-section"><h2>Reviews & 360° feedback</h2>
+      ${(data.reviews || []).map(peerRequirementCard).join('')}
       <div class="card"><div class="section-head"><div><h3>My peer reviewer nominations</h3><p class="muted">Nominate someone who directly observed your work during an active review cycle.</p></div><button class="btn primary" data-nominate-peer>+ Nominate peer</button></div>
       ${(data.nominations || []).map(nominationCard).join('') || empty('No peer reviewers nominated yet.')}</div>
       <div class="card"><h3>My feedback requests</h3>
@@ -52,6 +78,7 @@
     content.querySelectorAll('[data-feedback]').forEach(b=>b.onclick=()=>feedbackForm(Number(b.dataset.feedback)));
     content.querySelector('[data-nominate-peer]')?.addEventListener('click',nominationForm);
     content.querySelectorAll('[data-escalate-nomination]').forEach(b=>b.onclick=()=>escalationForm(Number(b.dataset.escalateNomination)));
+    content.querySelectorAll('[data-use-suggested-peer]').forEach(b=>b.onclick=()=>nominationForm({participantId:Number(b.dataset.participant),peerId:Number(b.dataset.useSuggestedPeer)}));
     updatePersonalNavigation();
   }
   async function refresh() {
@@ -89,7 +116,7 @@
       const body={employeeId:Number(user.id),title:f.elements.title.value.trim(),due:f.elements.due.value,steps:f.elements.steps.value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)};
       body[type==='pdp'?'description':'target']=f.elements.description.value.trim();saveForm(f,type==='pdp'?'create_pdp':'create_goal',body);};
   }
-  function nominationForm() {
+  function nominationForm(prefill={}) {
     const cycles=(data.nominationOptions || []).filter(option=>option.peers.length);
     if(!cycles.length){message.textContent='No active review cycle with eligible peers is available.';return;}
     const cycleOptions=cycles.map(option=>`<option value="${option.participantId}">${esc(cycleName(option.cycle))}${option.deadline?` · Nominate by ${esc(option.deadline)}`:''}</option>`).join('');
@@ -105,7 +132,9 @@
     const cycleSelect=form.elements.participantId;
     const peerSelect=form.elements.peerId;
     const updatePeers=()=>{const cycle=cycles.find(option=>Number(option.participantId)===Number(cycleSelect.value));peerSelect.innerHTML=(cycle?.peers || []).map(peer=>`<option value="${peer.id}">${esc(peer.name)} — ${esc(peer.jobTitle || 'Job title not set')}${peer.team?` · ${esc(peer.team)}`:''}</option>`).join('');};
+    if(prefill.participantId && cycles.some(option=>Number(option.participantId)===Number(prefill.participantId))) cycleSelect.value=String(prefill.participantId);
     cycleSelect.onchange=updatePeers;updatePeers();
+    if(prefill.peerId && [...peerSelect.options].some(option=>Number(option.value)===Number(prefill.peerId))) peerSelect.value=String(prefill.peerId);
     form.onsubmit=e=>{e.preventDefault();const f=e.currentTarget;saveForm(f,'create_peer_nomination',{
       participantId:Number(f.elements.participantId.value),peerId:Number(f.elements.peerId.value),sharedWork:f.elements.sharedWork.value.trim(),
       collaborationDetails:f.elements.collaborationDetails.value.trim(),reviewerJustification:f.elements.reviewerJustification.value.trim(),
@@ -116,7 +145,7 @@
     const nomination=(data.nominations || []).find(item=>Number(item.id)===id);
     if(!nomination)return;
     formDialog('Forward decision to HR',`<p>Your manager declined <strong>${esc(nomination.peer)}</strong> as a reviewer.</p><div class="notice warn"><strong>Manager reason</strong><p>${esc(nomination.decisionReason || 'No reason was recorded.')}</p></div>
-      <form class="workspace-form"><label>Why should HR review this decision?<textarea name="reason" required minlength="30" maxlength="2000" rows="5" placeholder="Explain why the peer has relevant first-hand knowledge or why the manager decision may be incorrect."></textarea><small>HR handling will remain pending until the HR workspace supports this process.</small></label>
+      <form class="workspace-form"><label>Why should HR review this decision?<textarea name="reason" required minlength="30" maxlength="2000" rows="5" placeholder="Explain why the peer has relevant first-hand knowledge or why the manager decision may be incorrect."></textarea><small>Senior HR or an HR partner will review the nomination evidence and manager decision.</small></label>
       <button class="btn primary" type="submit">Forward to HR</button></form>`);
     const form=dialog.querySelector('form');form.onsubmit=e=>{e.preventDefault();saveForm(form,'escalate_peer_nomination',{id,reason:form.elements.reason.value.trim()});};
   }
