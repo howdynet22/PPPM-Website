@@ -14,13 +14,19 @@ class Client {
 }
 const alex=await new Client().login('alex'),casey=await new Client().login('casey'),jordan=await new Client().login('jordan'),morgan=await new Client().login('morgan');
 const blair=await new Client().login('blair'),quinn=await new Client().login('quinn');
-const hr=await new Client().login('taylor'),hrLead=await new Client().login('riley'),coordinator=await new Client().login('sam'),ceo=await new Client().login('avery');
+const hr=await new Client().login('taylor'),hrLead=await new Client().login('riley'),coordinator=await new Client().login('sam'),admin=await new Client().login('devon'),ceo=await new Client().login('avery');
 assert.deepEqual(casey.user.workspaces.map(w=>w.key),['employee','manager']);
 assert.deepEqual(hr.user.workspaces.map(w=>w.key),['employee','hr']);
+assert(admin.user.workspaces.some(w=>w.key==='employee'),'Administrators with Personal permission must receive the ordinary Personal workspace');
 assert.deepEqual(ceo.user.workspaces.map(w=>w.key),['manager','executive']);
 await alex.call('workspace&scope=hr',null,403);
 await alex.call('dashboard',null,403);
 await ceo.call('workspace&scope=employee',null,403);
+for(const [label,client] of [['administrator',admin],['HR lead',hrLead],['HR partner',hr],['HR coordinator',coordinator],['manager',casey]]){
+  const personal=(await client.call('workspace&scope=employee')).data;
+  assert(personal.reviews.some(review=>review.cycle==='Demo development check-in'),`${label} must be enrolled in the active review cycle`);
+  assert(personal.nominationOptions.some(option=>option.peers.length>0),`${label} must be able to nominate an eligible peer`);
+}
 let own=(await alex.call('workspace&scope=employee')).data;
 assert.equal(own.plans.length,1);assert.equal(own.pips.length,0);
 assert(own.nominations.some(n=>n.status==='approved'));
