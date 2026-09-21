@@ -53,6 +53,12 @@
     const activeGoals=data.goals.filter(g=>g.progress.status!=='completed').length
       + activeActions.filter(action=>action.progress.status!=='completed').length;
     const pending=data.requests.filter(r=>r.canSubmit).length;
+    const notifications=data.notifications || [];
+    const unread=notifications.filter(n=>n.unread).length;
+    const notificationList=notifications.map(n=>{
+      const safeUrl=/^[A-Za-z0-9._/-]+(?:#[A-Za-z0-9_-]+)?$/.test(n.action_url || '')?n.action_url:'';
+      return `<article class="personal-item notification-item ${n.unread?'':'is-read'}"><div class="section-head"><div><strong>${n.unread?'<span class="notification-label">New · </span>':''}${esc(n.title)}</strong><p>${esc(n.message)}</p><small class="muted">${esc(n.created_at)}</small></div>${safeUrl?`<a class="btn small" href="${esc(safeUrl)}">Open</a>`:''}</div></article>`;
+    }).join('') || empty('No notifications yet.');
     const reviewAction=(data.reviews || []).find(r=>['open','peer_review'].includes(r.cycle_status) && (Number(r.peerNominationShortfall)>0 || Number(r.peerApprovalShortfall)>0));
     const reviewPrompt=reviewAction
       ? `<div class="notice warn"><div class="section-head"><div><strong>Review action required — ${esc(cycleName(reviewAction.cycle))}</strong><p>${Number(reviewAction.peerNominationShortfall)>0?`Nominate ${Number(reviewAction.peerNominationShortfall)} more peer reviewer${Number(reviewAction.peerNominationShortfall)===1?'':'s'} so you keep at least ${Number(reviewAction.min_peers)||3} active nominations.`:`You have nominated enough peers. Your manager still needs to approve ${Number(reviewAction.peerApprovalShortfall)} reviewer${Number(reviewAction.peerApprovalShortfall)===1?'':'s'} before the cycle can progress.`}</p></div><a class="btn small primary" href="#feedback">Open review actions</a></div></div>`
@@ -61,6 +67,7 @@
       <div class="card kpi"><span class="label">Active goals</span><strong class="value">${activeGoals}</strong></div>
       <div class="card kpi"><span class="label">Development steps</span><strong class="value">${complete}/${allSteps.length}</strong><span class="muted">Completed steps</span></div>
       <div class="card kpi"><span class="label">Feedback to submit</span><strong class="value">${pending}</strong><a class="btn small" href="#feedback">View requests</a></div></div>${reviewPrompt}
+      <section id="notifications" class="workspace-section"><div class="section-head"><div><h2>Notifications</h2><p class="muted">Workflow events and scheduled reminders from the database.</p></div><button class="btn" data-mark-notifications ${unread?'':'disabled'}>Mark all read (${unread})</button></div><div class="card">${notificationList}</div></section>
       <section id="development" class="workspace-section"><div class="section-head"><div><h2>My development plans</h2><p class="muted">Open a goal to record progress, blockers or completion.</p></div><button class="btn primary" data-create="pdp">+ Development goal</button></div>
       ${data.plans.map(p=>`<article class="card plan-card"><div class="section-head"><div><h3>${esc(p.summary || 'Development plan')}</h3><p class="muted">Set by ${esc(p.owner)}</p></div><span class="status">${label(p.status)}</span></div>${p.status==='draft'?`<div class="notice"><strong>Your agreement is required</strong><p>Confirm this development plan or ask the manager to revise it.</p><button class="btn small primary" data-agree-pdp="${p.id}">Agree</button> <button class="btn small" data-change-pdp="${p.id}">Request changes</button></div>`:''}<div class="personal-items">${p.actions.map(itemCard).join('') || empty('This plan has no goals yet.')}</div></article>`).join('') || empty('No development plan yet. Add a goal to start your plan.')}
       <div class="section-head"><h2>My goals</h2><button class="btn" data-create="goal">+ Goal</button></div><div class="card">${data.goals.map(itemCard).join('') || empty('No personal goals yet.')}</div></section>
@@ -81,7 +88,12 @@
     content.querySelectorAll('[data-use-suggested-peer]').forEach(b=>b.onclick=()=>nominationForm({participantId:Number(b.dataset.participant),peerId:Number(b.dataset.useSuggestedPeer)}));
     content.querySelectorAll('[data-agree-pdp]').forEach(b=>b.onclick=()=>agreePdp(Number(b.dataset.agreePdp)));
     content.querySelectorAll('[data-change-pdp]').forEach(b=>b.onclick=()=>requestPdpChanges(Number(b.dataset.changePdp)));
+    content.querySelector('[data-mark-notifications]')?.addEventListener('click',markNotificationsRead);
     updatePersonalNavigation();
+  }
+  async function markNotificationsRead(){
+    try{await request('mark_notifications_read',{all:true});await refresh();message.textContent='Notifications marked as read.';}
+    catch(error){message.textContent=error.message;}
   }
   async function agreePdp(id){
     try{await request('agree_pdp',{id});await refresh();message.textContent='Development plan agreed.';}catch(error){message.textContent=error.message;}
@@ -175,11 +187,12 @@
   setInterval(refresh,15000);
   function updatePersonalNavigation() {
     const requested=location.hash.slice(1);
-    const current=['development','improvement','feedback'].includes(requested)?requested:'development';
+    const current=['development','improvement','feedback','notifications'].includes(requested)?requested:'development';
     const viewCopy={
       development:['Development','Your goals and development plans.'],
       improvement:['Improvement Plans','Your assigned performance improvement plans and progress.'],
-      feedback:['Reviews & Feedback','Complete feedback requests and view released review results.']
+      feedback:['Reviews & Feedback','Complete feedback requests and view released review results.'],
+      notifications:['Notifications','Workflow events and reminders from your notification inbox.']
     };
     document.querySelectorAll('.sidebar .nav-btn[href^="#"]').forEach(link=>link.classList.toggle('active',link.getAttribute('href')===`#${current}`));
     content.querySelectorAll('.workspace-section').forEach(section=>{section.hidden=section.id!==current;});

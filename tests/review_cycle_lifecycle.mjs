@@ -61,6 +61,13 @@ const employeeUi=await loginPage(browser,'alex','employee-dashboard.html#feedbac
 const managerUi=await loginPage(browser,'casey','manager-dashboard.html');
 const hrUi=await loginPage(browser,'riley','hr-dashboard.html');
 await waitText(employeeUi.page,'#employeeContent',cycleName);
+await employeeUi.page.click('a[href="#notifications"]');
+await waitText(employeeUi.page,'#employeeContent','Review cycle opened');
+let inbox=await alex.call('get_notifications');
+assert(inbox.notifications.some(n=>n.notification_type==='review_cycle_open'&&Number(n.entity_id)===Number(created.id)));
+await alex.call('mark_notifications_read',{ids:inbox.notifications.map(n=>Number(n.id))});
+assert.equal((await alex.call('get_notifications&unread=1')).notifications.length,0);
+await employeeUi.page.click('a[href="#feedback"]');
 await hrUi.page.click('[data-page="cycles"]');
 await waitText(hrUi.page,'#cyclesTable',cycleName);
 await waitText(hrUi.page,'#cyclesTable','Open');
@@ -96,6 +103,9 @@ let managerData=await casey.call('dashboard');
 const nominations=managerData.peerNominations.filter(row=>Number(row.employeeId)===Number(alex.user.id)&&row.cycle===cycleName);
 assert.equal(nominations.length,3);
 for(const nomination of nominations) await casey.call('decide_peer',{id:Number(nomination.id),status:'approved',reason:'The nominated peer directly observed substantial work during this review period.'});
+const managerInbox=await casey.call('get_notifications');
+assert(managerInbox.notifications.some(n=>n.notification_type==='peer_nomination_pending'));
+assert(managerInbox.notifications.some(n=>n.notification_type==='peer_nomination_pending'&&!n.unread),'Decided nomination should no longer remain unread');
 
 await riley.call('hr_cycle_advance',{id:Number(created.id)});
 await refreshFromDatabase(hrUi.page);
@@ -128,10 +138,18 @@ await casey.call('submit_review',{
   summary:'Alex delivered reliably, incorporated feedback and communicated clearly throughout the review period.',
   competencies:refreshedManager.competencies.map(c=>({competencyId:Number(c.id),score:4,comment:`Manager evidence for ${c.name}`})),
 });
+await employeeUi.page.click('a[href="#notifications"]');
+await refreshFromDatabase(employeeUi.page);
+await waitText(employeeUi.page,'#employeeContent','Manager review submitted');
+inbox=await alex.call('get_notifications');
+assert(inbox.notifications.some(n=>n.notification_type==='manager_review_submitted'));
+await employeeUi.page.click('a[href="#feedback"]');
 await refreshFromDatabase(managerUi.page);
 await waitText(managerUi.page,'#reviewTable','Manager submitted');
 
 await riley.call('hr_cycle_advance',{id:Number(created.id)});
+let hrInbox=await riley.call('get_notifications');
+assert(!hrInbox.notifications.some(n=>n.notification_type==='review_cycle_closed'&&Number(n.entity_id)===Number(created.id)),'HR close notification must not be sent at release');
 await refreshFromDatabase(employeeUi.page);
 await waitText(employeeUi.page,'#employeeContent','Final rating:');
 await waitText(employeeUi.page,'#employeeContent','4.5 / 5');
@@ -142,6 +160,10 @@ assert.equal(released.feedback.length,3);
 assert(!JSON.stringify(released.feedback).includes('respondent'));
 
 await riley.call('hr_cycle_advance',{id:Number(created.id)});
+hrInbox=await riley.call('get_notifications');
+assert(hrInbox.notifications.some(n=>n.notification_type==='review_cycle_closed'&&Number(n.entity_id)===Number(created.id)),'HR must be notified when the cycle closes');
+inbox=await alex.call('get_notifications');
+assert(inbox.notifications.some(n=>n.notification_type==='review_results_released'&&Number(n.entity_id)===Number(created.id)));
 await refreshFromDatabase(hrUi.page);
 await waitText(hrUi.page,'#cyclesTable','Closed');
 await alex.call('submit_personal_feedback',{id:Number(selfRequest.id),ratings:selfForm.competencies.map(c=>({competencyId:Number(c.id),score:5,comment:'Too late'}))},409);

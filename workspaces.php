@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__.'/notifications.php';
 
 function available_workspaces(array $user): array
 {
@@ -157,7 +158,9 @@ function workspace_personal(int $viewer): array
         ];
     }
     return ['goals'=>$goals, 'plans'=>$plans, 'pips'=>workspace_pips($viewer,'employee'), 'reviews'=>$reviews,
-        'requests'=>$requests, 'nominations'=>$nominations, 'nominationOptions'=>$nominationOptions];
+        'requests'=>$requests, 'nominations'=>$nominations, 'nominationOptions'=>$nominationOptions,
+        'notifications'=>get_notifications($viewer,false,50),
+        'unreadNotificationCount'=>get_unread_notification_count($viewer)];
 }
 
 function personal_feedback_open(array $request): bool
@@ -278,7 +281,7 @@ function workspace_api(string $action): never
         if (strlen($justification)<30 || strlen($justification)>2000) json_response(['ok'=>false,'error'=>'Explain what this peer directly observed using 30 to 2,000 characters'],422);
         if (!$confirmed) json_response(['ok'=>false,'error'=>'Confirm that this peer directly observed your work during the review period'],422);
         $pdo->beginTransaction();
-        $participant = workspace_rows("SELECT rp.id,rp.manager_id,rp.status participant_status,rc.status cycle_status,rc.peer_deadline
+        $participant = workspace_rows("SELECT rp.id,rp.action_manager_id manager_id,rp.status participant_status,rc.status cycle_status,rc.peer_deadline
             FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id
             WHERE rp.id=? AND rp.employee_id=? FOR UPDATE",[$participantId,$viewer])[0] ?? null;
         if (!$participant) { $pdo->rollBack(); json_response(['ok'=>false,'error'=>'Review cycle not found'],404); }
@@ -304,6 +307,8 @@ function workspace_api(string $action): never
         $stmt->execute([$participantId,$peerId,$sharedWork,$collaboration,$justification,1,$viewer]);
         $id=(int)$pdo->lastInsertId();
         audit($viewer,'CREATE_PEER_NOMINATION','peer_nomination',$id,'Submitted peer reviewer nomination');
+        create_notification((int)$participant['manager_id'],'peer_nomination_pending','Peer nomination awaiting decision',
+            'A peer nomination is waiting for your decision.','peer_nomination',$id,'manager-dashboard.html',"peer-nomination:$id");
         $pdo->commit();
         json_response(['ok'=>true,'id'=>$id]);
     }
