@@ -93,7 +93,7 @@ await waitText(managerUi.page,'#peerTable','Drew Parker');
 await waitText(managerUi.page,'#peerTable','Blair Hayes');
 
 let managerData=await casey.call('dashboard');
-const nominations=managerData.peerNominations.filter(row=>Number(row.participantId)===Number(review.id));
+const nominations=managerData.peerNominations.filter(row=>Number(row.employeeId)===Number(alex.user.id)&&row.cycle===cycleName);
 assert.equal(nominations.length,3);
 for(const nomination of nominations) await casey.call('decide_peer',{id:Number(nomination.id),status:'approved',reason:'The nominated peer directly observed substantial work during this review period.'});
 
