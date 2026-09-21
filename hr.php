@@ -629,7 +629,7 @@ function hr_api(string $action): never
                         $ratingStmt = db()->prepare(
                             "SELECT rcc.competency_id,rcc.name,fr.score,fr.comment " .
                             "FROM feedback_ratings fr JOIN feedback_requests req ON req.id=fr.request_id JOIN review_participants rp ON rp.id=req.participant_id JOIN review_cycle_competencies rcc ON rcc.cycle_id=rp.cycle_id AND rcc.competency_id=fr.competency_id " .
-                            "WHERE fr.request_id=? ORDER BY c.id",
+                            "WHERE fr.request_id=? ORDER BY rcc.display_order",
                         );
                         $ratingStmt->execute([(int) $selfRequest["id"]]);
                         $ratings = $ratingStmt->fetchAll();
