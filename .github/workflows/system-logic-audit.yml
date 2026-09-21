@@ -60,6 +60,21 @@ jobs:
           PPPM_DB_NAME: pppm_test
           PPPM_DB_USER: root
           PPPM_DB_PASS: root
+      - name: Full review lifecycle and UI freshness simulation
+        run: |
+          php scripts/demo.php reset
+          mysql -h127.0.0.1 -uroot -proot pppm_test -e "UPDATE review_cycles SET status='closed' WHERE status IN ('open','peer_review','manager_review'); UPDATE users SET review_eligible=0; UPDATE users SET review_eligible=1 WHERE email='alex@demo.pppm.test';"
+          npm install --no-save playwright-core
+          php -S 127.0.0.1:8080 -t . >/tmp/pppm-lifecycle-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for attempt in {1..20}; do curl -fsS http://127.0.0.1:8080/index.html >/dev/null && break; sleep 1; done
+          PPPM_TEST_URL=http://127.0.0.1:8080 PPPM_CHROME_PATH=$(command -v google-chrome) node tests/review_cycle_lifecycle.mjs
+        env:
+          PPPM_DB_HOST: 127.0.0.1
+          PPPM_DB_NAME: pppm_test
+          PPPM_DB_USER: root
+          PPPM_DB_PASS: root
       - name: Database invariants
         run: |
           output=$(mysql -N -h127.0.0.1 -uroot -proot pppm_test < tests/system_logic_audit_checks.sql)
