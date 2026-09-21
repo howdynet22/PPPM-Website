@@ -93,6 +93,7 @@ function seed_demo(): void
     $hrteam=demo_insert('teams',['department_id'=>$people,'team_code'=>'DEMO-HR','team_name'=>'People Operations']);
     $entries=[
         ['avery','Avery Lane','leadership','Chief Executive Officer',$exec,null,null],
+        ['devon','Devon Shaw','admin','System Administrator',$exec,null,'avery'],
         ['morgan','Morgan Reed','manager','Operations Director',$ops,null,'avery'],
         ['jordan','Jordan Ellis','manager','Department Manager',$ops,null,'morgan'],
         ['casey','Casey Brooks','manager','Team Lead',$ops,$team,'jordan'],
@@ -105,6 +106,11 @@ function seed_demo(): void
         ['blair','Blair Hayes','employee','Project Coordinator',$ops,null,'jordan'],
         ['quinn','Quinn River','employee','Business Analyst',$ops,null,'morgan'],
     ];
+    // A reset may introduce a newly added fixture account whose email already has
+    // failed sign-in history. Demo accounts should always start in a known state.
+    $demoEmails=array_map(static fn(array $entry): string=>$entry[0].'@demo.pppm.test',$entries);
+    $emailMarks=implode(',',array_fill(0,count($demoEmails),'?'));
+    db()->prepare("DELETE FROM login_attempts WHERE email IN ($emailMarks)")->execute($demoEmails);
     $users=[]; $hash=password_hash('password123',PASSWORD_DEFAULT);
     foreach($entries as [$key,$name,$role,$job,$department,$teamId,$manager]) {
         $users[$key]=demo_insert('users',['emp_code'=>'DEMO-'.strtoupper($key),'full_name'=>$name,'email'=>$key.'@demo.pppm.test','password_hash'=>$hash,'role'=>$role,'job_title'=>$job,'department_id'=>$department,'team_id'=>$teamId,'date_joined'=>$day('-2 years')]);
@@ -136,30 +142,48 @@ function seed_demo(): void
     demo_steps('pip_objective',$objective,$users['casey'],['Agree the handover checklist','Use the checklist for two weeks'],['completed','in_progress']);
     demo_insert('pip_checkins',['pip_id'=>$pip,'checkin_date'=>$day('-1 day'),'author_id'=>$users['casey'],'notes'=>'Checklist agreed. Review examples together next week.']);
     $cycle=demo_insert('review_cycles',['name'=>'Demo development check-in','period_start'=>$day('-30 days'),'period_end'=>$day('+30 days'),'self_deadline'=>$day('+10 days'),'peer_deadline'=>$day('+14 days'),'manager_deadline'=>$day('+21 days'),'status'=>'open','created_by'=>$users['riley']]);
-    foreach(['alex','casey'] as $key){
-        $manager=$key==='alex'?'casey':'jordan';
-        $participant=demo_insert('review_participants',['cycle_id'=>$cycle,'employee_id'=>$users[$key],'manager_id'=>$users[$manager]]);
-        demo_insert('feedback_requests',['participant_id'=>$participant,'respondent_id'=>$users[$key],'type'=>'self']);
-        if($key==='alex') {
-            demo_insert('peer_nominations',[
-                'participant_id'=>$participant,'peer_id'=>$users['jamie'],
-                'shared_work'=>'Customer onboarding guide',
-                'collaboration_details'=>'Jamie reviewed the onboarding workflow, tested the handover steps and helped refine the final guide.',
-                'reviewer_justification'=>'Jamie directly observed my communication, collaboration and delivery quality throughout the shared work.',
-                'status'=>'approved','nominated_by'=>$users['alex'],'decided_by'=>$users['casey'],'decided_at'=>date('Y-m-d H:i:s'),
-            ]);
-            demo_insert('feedback_requests',['participant_id'=>$participant,'respondent_id'=>$users['jamie'],'type'=>'peer']);
-            demo_insert('peer_nominations',[
-                'participant_id'=>$participant,'peer_id'=>$users['drew'],
-                'shared_work'=>'Support handover trial',
-                'collaboration_details'=>'Drew and I compared support handovers and tested how the revised guide worked during two shared cases.',
-                'reviewer_justification'=>'Drew directly observed how I explained the process and responded to feedback during the trial.',
-                'status'=>'rejected','nominated_by'=>$users['alex'],'decided_by'=>$users['casey'],
-                'decision_reason'=>'The shared trial was too short to provide enough evidence for the full review period.',
-                'decided_at'=>date('Y-m-d H:i:s'),
-            ]);
-        }
+
+    // Demo review participation mirrors the real HR cycle rules: every active
+    // employee and manager with a primary reporting manager participates. This
+    // keeps demo reset from recreating the old two-person review-cycle bug.
+    $cycleParticipants=[];
+    foreach($entries as [$key,$name,$role,$job,$department,$teamId,$manager]) {
+        if(!$manager || !in_array($role,['employee','manager'],true)) continue;
+        $participant=demo_insert('review_participants',[
+            'cycle_id'=>$cycle,
+            'employee_id'=>$users[$key],
+            'manager_id'=>$users[$manager],
+        ]);
+        $cycleParticipants[$key]=$participant;
+        demo_insert('feedback_requests',[
+            'participant_id'=>$participant,
+            'respondent_id'=>$users[$key],
+            'type'=>'self',
+        ]);
     }
+
+    // Keep Alex's examples so the demo still shows approved/rejected peer
+    // nominations while every other participant starts from a clean state.
+    $alexParticipant=$cycleParticipants['alex'];
+    demo_insert('peer_nominations',[
+        'participant_id'=>$alexParticipant,'peer_id'=>$users['jamie'],
+        'shared_work'=>'Customer onboarding guide',
+        'collaboration_details'=>'Jamie reviewed the onboarding workflow, tested the handover steps and helped refine the final guide.',
+        'reviewer_justification'=>'Jamie directly observed my communication, collaboration and delivery quality throughout the shared work.',
+        'status'=>'approved','nominated_by'=>$users['alex'],'decided_by'=>$users['casey'],'decided_at'=>date('Y-m-d H:i:s'),
+    ]);
+    demo_insert('feedback_requests',['participant_id'=>$alexParticipant,'respondent_id'=>$users['jamie'],'type'=>'peer']);
+    demo_insert('peer_nominations',[
+        'participant_id'=>$alexParticipant,'peer_id'=>$users['drew'],
+        'shared_work'=>'Support handover trial',
+        'collaboration_details'=>'Drew and I compared support handovers and tested how the revised guide worked during two shared cases.',
+        'reviewer_justification'=>'Drew directly observed how I explained the process and responded to feedback during the trial.',
+        'status'=>'rejected','nominated_by'=>$users['alex'],'decided_by'=>$users['casey'],
+        'decision_reason'=>'The shared trial was too short to provide enough evidence for the full review period.',
+        'suggested_peer_id'=>$users['blair'],
+        'suggestion_reason'=>'Blair worked with Alex across a longer coordination period and is likely to have broader first-hand evidence.',
+        'decided_at'=>date('Y-m-d H:i:s'),
+    ]);
     $cycle=demo_insert('review_cycles',['name'=>'Previous Performance Review','period_start'=>$day('-180 days'),'period_end'=>$day('-90 days'),'status'=>'released','created_by'=>$users['riley'],'released_at'=>date('Y-m-d H:i:s')]);
     $participant=demo_insert('review_participants',['cycle_id'=>$cycle,'employee_id'=>$users['morgan'],'manager_id'=>$users['avery'],'status'=>'released','final_rating'=>4,'manager_summary'=>'Clear priorities and thoughtful follow-through.','released_at'=>date('Y-m-d H:i:s')]);
     foreach(['jordan','riley','quinn'] as $peer){
