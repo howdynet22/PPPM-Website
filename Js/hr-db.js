@@ -81,11 +81,7 @@
       };
       fillFilterOptions();
       renderAll();
-      sync(
-        announce
-          ? "Updated " + new Date().toLocaleTimeString()
-          : "HR data loaded.",
-      );
+      sync(announce ? "Updated " + new Date().toLocaleTimeString() : "");
     } catch (error) {
       sync(error.message, true);
       toast(error.message);
@@ -231,16 +227,18 @@
                 <p>${esc(row.reviewer_justification)}</p>
                 <strong>Manager's rejection reason</strong>
                 <p>${esc(row.decision_reason || "No reason recorded.")}</p>
-                <strong>Employee's escalation reason</strong>
+                <strong>Participant's escalation reason</strong>
                 <p>${esc(row.escalation_reason)}</p>
               </div>
               <div class="action-group">
                 <button class="btn" data-resolve="${row.id}" data-outcome="resolved_upheld">
                   Uphold rejection
                 </button>
-                <button class="btn primary" data-resolve="${row.id}" data-outcome="resolved_overturned">
-                  Overturn and request peer feedback
-                </button>
+                ${row.can_overturn
+                  ? `<button class="btn primary" data-resolve="${row.id}" data-outcome="resolved_overturned">
+                      Overturn and request peer feedback
+                    </button>`
+                  : '<span class="muted">Peer-review window closed; rejection can only be upheld.</span>'}
               </div>
             </div>`,
           )
@@ -303,23 +301,36 @@
 
   function renderCycles() {
     if (!can("hr.reports")) return;
+    const nextAction = {
+      open: ["Move to peer review", "peer_review"],
+      peer_review: ["Open manager review", "manager_review"],
+      manager_review: ["Release results", "released"],
+      calibration: ["Release results", "released"],
+      released: ["Close cycle", "closed"],
+    };
     $("#cyclesTable").innerHTML = data.cycles.length
       ? data.cycles
           .map((row) => {
             const total = Number(row.participants) || 0;
             const done = Number(row.completed) || 0;
             const percentage = total ? Math.round((done / total) * 100) : 0;
+            const action = nextAction[row.status];
+            const actionMarkup = action
+              ? `<button class="btn small ${["manager_review", "calibration"].includes(row.status) ? "primary" : ""}" data-cycle-advance="${row.id}" data-next-status="${action[1]}">${action[0]}</button>`
+              : '<span class="muted">No action</span>';
             return `<tr>
               <td><strong>${esc(row.name)}</strong></td>
               <td>${fmtDate(row.period_start)} – ${fmtDate(row.period_end)}</td>
               <td>${statusTag(row.status)}</td>
               <td>${progressMarkup(percentage)}<span class="muted">${done}/${total}</span></td>
+              <td><strong>${Number(row.peer_ready_participants || 0)}/${total}</strong><div class="muted">Each needs ${Number(row.min_peers) || 3} approved peers</div></td>
               <td>${row.pending_forms}</td>
               <td>${row.average_rating ?? "—"}</td>
+              <td>${actionMarkup}</td>
             </tr>`;
           })
           .join("")
-      : emptyRow(6, "No review cycles exist yet.");
+      : emptyRow(8, "No review cycles exist yet.");
   }
 
   function renderReports() {
@@ -419,12 +430,34 @@
         : emptyRow(3, "No goals recorded.");
       const reviews = result.reviews.length
         ? result.reviews
-            .map(
-              (review) =>
-                `<tr><td>${esc(review.cycle_name)}</td><td>${statusTag(review.status)}</td><td>${review.final_rating ?? "—"}</td></tr>`,
-            )
+            .map((review) => {
+              const selfReview = review.self_review;
+              let selfReviewCell = '<span class="muted">No self-review request</span>';
+              if (selfReview?.status === "pending") {
+                selfReviewCell = '<span class="status amber">Pending</span>';
+              } else if (selfReview?.status === "submitted") {
+                const ratings = (selfReview.ratings || [])
+                  .map(
+                    (rating) => `<div class="detail-box compact">
+                      <strong>${esc(rating.name)} · ${Number(rating.score)}/5</strong>
+                      <p>${rating.comment ? esc(rating.comment) : '<span class="muted">No comment provided.</span>'}</p>
+                    </div>`,
+                  )
+                  .join("");
+                selfReviewCell = `<details>
+                  <summary class="btn small">View self review</summary>
+                  <div class="spaced-top">${ratings || '<p class="muted">No competency ratings found.</p>'}</div>
+                </details>`;
+              }
+              return `<tr>
+                <td>${esc(review.cycle_name)}</td>
+                <td>${statusTag(review.status)}</td>
+                <td>${review.final_rating ?? "—"}</td>
+                <td>${selfReviewCell}</td>
+              </tr>`;
+            })
             .join("")
-        : emptyRow(3, "No review participation recorded.");
+        : emptyRow(4, "No review participation recorded.");
       const pips = result.pips.length
         ? result.pips
             .map(
@@ -450,7 +483,7 @@
         <h4>Goals</h4>
         <div class="table-wrap"><table class="table"><thead><tr><th>Goal</th><th>Due</th><th>Status</th></tr></thead><tbody>${goals}</tbody></table></div>
         <h4 class="spaced-top">Review history</h4>
-        <div class="table-wrap"><table class="table"><thead><tr><th>Cycle</th><th>Status</th><th>Rating</th></tr></thead><tbody>${reviews}</tbody></table></div>
+        <div class="table-wrap"><table class="table"><thead><tr><th>Cycle</th><th>Status</th><th>Rating</th><th>Self review</th></tr></thead><tbody>${reviews}</tbody></table></div>
         <h4 class="spaced-top">Improvement plans</h4>
         <div class="table-wrap"><table class="table"><thead><tr><th>Dates</th><th>Status</th><th>Reason</th></tr></thead><tbody>${pips}</tbody></table></div>`,
         '<button class="btn" onclick="closeModal()">Close</button>',
@@ -654,6 +687,42 @@
     }
   }
 
+  async function advanceCycle(id, nextStatus) {
+    const cycle = data.cycles.find((row) => Number(row.id) === Number(id));
+    if (nextStatus === "peer_review" && cycle) {
+      const ready = Number(cycle.peer_ready_participants || 0);
+      const total = Number(cycle.participants || 0);
+      if (ready < total) {
+        toast(`${total - ready} participant${total-ready===1?' still needs':'s still need'} the required approved peer reviewers.`);
+        return;
+      }
+    }
+    if (nextStatus === "manager_review" && cycle && Number(cycle.below_peer_response_threshold || 0) > 0) {
+      const below = Number(cycle.below_peer_response_threshold || 0);
+      const confirmed = window.confirm(
+        `${below} participant${below===1?' has':'s have'} fewer than ${Number(cycle.min_peers) || 3} completed peer responses. Their anonymous peer aggregate will remain hidden, but manager reviews can still proceed. Open manager review?`,
+      );
+      if (!confirmed) return;
+    }
+    if (nextStatus === "released") {
+      const confirmed = window.confirm(
+        "Release this cycle? Employees will immediately see their final rating, manager summary and any eligible anonymous peer feedback.",
+      );
+      if (!confirmed) return;
+    }
+    try {
+      const result = await request("hr_cycle_advance", {
+        method: "POST",
+        body: JSON.stringify({ id: Number(id) }),
+      });
+      toast(`Review cycle moved to ${String(result.cycle.status).replaceAll("_", " ")}.`, "success");
+      await load(true);
+      showPage("cycles");
+    } catch (error) {
+      toast(error.message || "Unable to update the review cycle.");
+    }
+  }
+
   function wire() {
     setupNavigation(pageMeta);
     $("#refreshBtn")?.addEventListener("click", () => load(true));
@@ -677,7 +746,7 @@
     // Generated buttons are handled by delegation, so no inline handlers are
     // written into table markup.
     document.addEventListener("click", (event) => {
-      const target = event.target.closest("[data-employee],[data-case],[data-pip],[data-resolve],[data-confirm-case],[data-save-pip]");
+      const target = event.target.closest("[data-employee],[data-case],[data-pip],[data-resolve],[data-confirm-case],[data-save-pip],[data-cycle-advance]");
       if (!target) return;
       if (target.dataset.employee) openEmployee(target.dataset.employee);
       else if (target.dataset.case) resolveCaseFromOverview(target.dataset.case);
@@ -687,6 +756,8 @@
       else if (target.dataset.confirmCase)
         confirmCase(target.dataset.confirmCase, target.dataset.outcome);
       else if (target.dataset.savePip) savePip(target.dataset.savePip);
+      else if (target.dataset.cycleAdvance)
+        advanceCycle(target.dataset.cycleAdvance, target.dataset.nextStatus);
     });
   }
 
@@ -711,16 +782,17 @@
           </label>
 
           <label>
-            Minimum peer reviews
+            Required peer reviewers
             <input
               id="cycleMinPeers"
               name="min_peers"
               type="number"
-              min="1"
+              min="3"
               max="10"
               value="3"
               required
             />
+            <small>Each participant must have this many approved peer reviewers. Anonymous peer results are also hidden until this many responses are submitted.</small>
           </label>
 
           <label>
