@@ -63,7 +63,7 @@ jobs:
       - name: Full review lifecycle and UI freshness simulation
         run: |
           php scripts/demo.php reset
-          mysql -h127.0.0.1 -uroot -proot pppm_test -e "UPDATE review_cycles SET status='closed' WHERE status IN ('open','peer_review','manager_review'); UPDATE users SET review_eligible=0; UPDATE users SET review_eligible=1 WHERE email='alex@demo.pppm.test';"
+          mysql -h127.0.0.1 -uroot -proot pppm_test -e "UPDATE review_cycles SET status='closed' WHERE status IN ('open','peer_review','manager_review'); UPDATE feedback_requests fr JOIN review_participants rp ON rp.id=fr.participant_id JOIN review_cycles rc ON rc.id=rp.cycle_id SET fr.status='expired' WHERE rc.status='closed' AND fr.status='pending'; UPDATE users SET review_eligible=0; UPDATE users SET review_eligible=1 WHERE email='alex@demo.pppm.test';"
           npm install --no-save playwright-core
           php -S 127.0.0.1:8080 -t . >/tmp/pppm-lifecycle-server.log 2>&1 &
           server_pid=$!
