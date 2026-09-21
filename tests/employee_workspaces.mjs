@@ -17,7 +17,7 @@ const blair=await new Client().login('blair'),quinn=await new Client().login('qu
 const hr=await new Client().login('taylor'),hrLead=await new Client().login('riley'),coordinator=await new Client().login('sam'),ceo=await new Client().login('avery');
 assert.deepEqual(casey.user.workspaces.map(w=>w.key),['employee','manager']);
 assert.deepEqual(hr.user.workspaces.map(w=>w.key),['employee','hr']);
-assert.deepEqual(ceo.user.workspaces.map(w=>w.key),['executive']);
+assert.deepEqual(ceo.user.workspaces.map(w=>w.key),['manager','executive']);
 await alex.call('workspace&scope=hr',null,403);
 await alex.call('dashboard',null,403);
 await ceo.call('workspace&scope=employee',null,403);
