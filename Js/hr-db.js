@@ -10,6 +10,7 @@
     resolvedCases: [],
     pips: [],
     cycles: [],
+    competencies: [],
     reports: null,
   };
   let viewerId = 0;
@@ -35,6 +36,10 @@
     cycles: [
       "Review cycles",
       "Participation, outstanding forms and released ratings per cycle.",
+    ],
+    competencies: [
+      "Review competencies",
+      "Maintain the framework used when future review cycles are published.",
     ],
     reports: [
       "Reports & insights",
@@ -77,6 +82,7 @@
         resolvedCases: result.resolvedCases || [],
         pips: result.pips || [],
         cycles: result.cycles || [],
+        competencies: result.competencies || [],
         reports: result.reports || null,
       };
       fillFilterOptions();
@@ -302,10 +308,10 @@
   function renderCycles() {
     if (!can("hr.reports")) return;
     const nextAction = {
+      draft: ["Publish cycle", "open"],
       open: ["Move to peer review", "peer_review"],
       peer_review: ["Open manager review", "manager_review"],
       manager_review: ["Release results", "released"],
-      calibration: ["Release results", "released"],
       released: ["Close cycle", "closed"],
     };
     $("#cyclesTable").innerHTML = data.cycles.length
@@ -315,8 +321,16 @@
             const done = Number(row.completed) || 0;
             const percentage = total ? Math.round((done / total) * 100) : 0;
             const action = nextAction[row.status];
-            const actionMarkup = action
-              ? `<button class="btn small ${["manager_review", "calibration"].includes(row.status) ? "primary" : ""}" data-cycle-advance="${row.id}" data-next-status="${action[1]}">${action[0]}</button>`
+            const blockers=row.readiness||{};
+            const blockerText=[
+              blockers.missingSelf&&`${blockers.missingSelf} self`,
+              blockers.peerAssignmentShortfall&&`${blockers.peerAssignmentShortfall} peer assignments`,
+              blockers.peerResponseShortfall&&`${blockers.peerResponseShortfall} peer responses`,
+              blockers.unresolvedEscalations&&`${blockers.unresolvedEscalations} escalations`,
+              blockers.inactiveManagers&&`${blockers.inactiveManagers} inactive managers`,
+            ].filter(Boolean).join(', ');
+            const actionMarkup = action && can('hr.cycles.manage')
+              ? `<button class="btn small ${row.status==='manager_review' ? "primary" : ""}" data-cycle-advance="${row.id}" data-next-status="${action[1]}">${action[0]}</button> ${['draft','open','peer_review','manager_review'].includes(row.status)?`<button class="btn small" data-cycle-edit="${row.id}">${row.status==='draft'?'Edit draft':'Extend deadlines'}</button>`:''} ${row.status!=='draft'?`<button class="btn small" data-manage-participants="${row.id}">Participants</button>`:''}${blockerText?`<div class="muted">Blockers: ${esc(blockerText)}</div>`:''}`
               : '<span class="muted">No action</span>';
             return `<tr>
               <td><strong>${esc(row.name)}</strong></td>
@@ -331,6 +345,11 @@
           })
           .join("")
       : emptyRow(8, "No review cycles exist yet.");
+  }
+
+  function renderCompetencies(){
+    const host=$("#competenciesTable");if(!host)return;
+    host.innerHTML=data.competencies.length?data.competencies.map(row=>`<tr><td><strong>${esc(row.name)}</strong><div class="muted">${esc(row.description||'')}</div></td><td>${statusTag(Number(row.is_active)?'active':'inactive')}</td><td><button class="btn small" data-competency="${row.id}">Edit</button></td></tr>`).join(''):emptyRow(3,'No competency framework exists. Add one before publishing a cycle.');
   }
 
   function renderReports() {
@@ -369,7 +388,7 @@
       metricRow("Blocked steps", 0, String(development.blocked_steps ?? 0)),
     ].join("");
 
-    const skills = reports.skillGaps || [];
+    const skills = reports.developmentSkills || [];
     const topSkill = Number(skills[0]?.action_count) || 1;
     $("#reportSkills").innerHTML = skills.length
       ? skills
@@ -407,6 +426,7 @@
     renderCases();
     renderPips();
     renderCycles();
+    renderCompetencies();
     renderReports();
     applyPermissions();
     applyDynamicMeasurements();
@@ -507,14 +527,15 @@
        <p class="modal-notice">
          ${
            overturning
-             ? "Overturning creates the peer's feedback form. The manager's decision stays on record; this escalation becomes the record of the override. It is refused if the cycle has closed or the peer deadline has passed."
+             ? "Overturning creates the peer's feedback form. A case submitted on time remains resolvable after the ordinary deadline; set a revised response deadline when prompted."
              : "Upholding leaves the manager's decision in place. No feedback form is created."
          }
        </p>
        <div class="field">
          <label for="caseNote">Resolution note (15–2,000 characters)</label>
          <textarea id="caseNote" rows="5" placeholder="Explain the decision. The employee and manager can see this."></textarea>
-       </div>`,
+       </div>
+       ${overturning&&record.needs_response_extension?`<div class="field"><label for="caseDeadline">Revised peer-response deadline</label><input id="caseDeadline" type="date" required></div>`:''}`,
       `<button class="btn" onclick="closeModal()">Cancel</button>
        <button class="btn primary" data-confirm-case="${id}" data-outcome="${outcome}">
          ${overturning ? "Overturn" : "Uphold"}
@@ -531,7 +552,7 @@
     try {
       const result = await request("hr_case_resolve", {
         method: "POST",
-        body: JSON.stringify({ id: Number(id), outcome, note }),
+        body: JSON.stringify({ id: Number(id), outcome, note, responseDeadline: $("#caseDeadline")?.value || "" }),
       });
       closeModal();
       toast(result.message || "Escalation resolved.");
@@ -689,6 +710,9 @@
 
   async function advanceCycle(id, nextStatus) {
     const cycle = data.cycles.find((row) => Number(row.id) === Number(id));
+    if(nextStatus==='open'){
+      try{const result=await request('hr_cycle_publish',{method:'POST',body:JSON.stringify({id:Number(id)})});toast(`Review cycle published for ${result.cycle.participants} participants.`, 'success');await load(true);showPage('cycles');}catch(error){toast(error.message||'Unable to publish the cycle.');}return;
+    }
     if (nextStatus === "peer_review" && cycle) {
       const ready = Number(cycle.peer_ready_participants || 0);
       const total = Number(cycle.participants || 0);
@@ -696,13 +720,6 @@
         toast(`${total - ready} participant${total-ready===1?' still needs':'s still need'} the required approved peer reviewers.`);
         return;
       }
-    }
-    if (nextStatus === "manager_review" && cycle && Number(cycle.below_peer_response_threshold || 0) > 0) {
-      const below = Number(cycle.below_peer_response_threshold || 0);
-      const confirmed = window.confirm(
-        `${below} participant${below===1?' has':'s have'} fewer than ${Number(cycle.min_peers) || 3} completed peer responses. Their anonymous peer aggregate will remain hidden, but manager reviews can still proceed. Open manager review?`,
-      );
-      if (!confirmed) return;
     }
     if (nextStatus === "released") {
       const confirmed = window.confirm(
@@ -730,6 +747,7 @@
     $("#exportPipsBtn")?.addEventListener("click", exportPips);
     $("#exportDepartmentsBtn")?.addEventListener("click", exportDepartments);
     $("#startCycleBtn")?.addEventListener("click", openStartCycleForm);
+    $("#addCompetencyBtn")?.addEventListener("click",()=>openCompetencyForm());
     $("#pipFilter")?.addEventListener("change", () => {
       renderPips();
       applyDynamicMeasurements();
@@ -746,7 +764,7 @@
     // Generated buttons are handled by delegation, so no inline handlers are
     // written into table markup.
     document.addEventListener("click", (event) => {
-      const target = event.target.closest("[data-employee],[data-case],[data-pip],[data-resolve],[data-confirm-case],[data-save-pip],[data-cycle-advance]");
+      const target = event.target.closest("[data-employee],[data-case],[data-pip],[data-resolve],[data-confirm-case],[data-save-pip],[data-cycle-advance],[data-cycle-edit],[data-save-cycle-edit],[data-manage-participants],[data-participant-exception],[data-competency],[data-save-competency]");
       if (!target) return;
       if (target.dataset.employee) openEmployee(target.dataset.employee);
       else if (target.dataset.case) resolveCaseFromOverview(target.dataset.case);
@@ -758,14 +776,46 @@
       else if (target.dataset.savePip) savePip(target.dataset.savePip);
       else if (target.dataset.cycleAdvance)
         advanceCycle(target.dataset.cycleAdvance, target.dataset.nextStatus);
+      else if(target.dataset.competency) openCompetencyForm(target.dataset.competency);
+      else if(target.dataset.saveCompetency) saveCompetency(target.dataset.saveCompetency);
+      else if(target.dataset.cycleEdit) openCycleEdit(target.dataset.cycleEdit);
+      else if(target.dataset.saveCycleEdit) saveCycleEdit(target.dataset.saveCycleEdit);
+      else if(target.dataset.manageParticipants) openCycleParticipants(target.dataset.manageParticipants);
+      else if(target.dataset.participantException) setParticipantException(target.dataset.participantException,target.dataset.exceptionType,target.dataset.cycleId);
     });
+  }
+
+  async function openCycleParticipants(id){
+    try{const result=await request('hr_cycle_participants&id='+Number(id));const rows=result.participants||[];openModal('Cycle participants',`<div class="table-wrap"><table class="table"><thead><tr><th>Participant</th><th>Manager</th><th>Self</th><th>Peer responses</th><th>Exceptions</th><th>Recovery action</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${esc(p.employee)}</td><td>${esc(p.manager)}${Number(p.manager_active)?'':' <strong>(inactive)</strong>'}</td><td>${esc(p.self_status||'missing')}</td><td>${Number(p.peer_responses)}/${Number(p.min_peers)}</td><td>${esc(p.exceptions||'—')}</td><td><button class="btn small" data-participant-exception="${p.id}" data-exception-type="waive_self" data-cycle-id="${id}">Waive self</button> <button class="btn small" data-participant-exception="${p.id}" data-exception-type="waive_peer" data-cycle-id="${id}">Waive peers</button> <button class="btn small" data-participant-exception="${p.id}" data-exception-type="excluded" data-cycle-id="${id}">Exclude</button></td></tr>`).join('')}</tbody></table></div>`,`<button class="btn" onclick="closeModal()">Close</button>`);}catch(error){toast(error.message);}
+  }
+  async function setParticipantException(participantId,type,cycleId){
+    const reason=window.prompt('Record the reason for this audited exception (at least 15 characters):','');if(reason===null)return;
+    try{await request('hr_participant_exception',{method:'POST',body:JSON.stringify({participantId:Number(participantId),type,reason:reason.trim()})});toast('Participant exception recorded.','success');await load();openCycleParticipants(cycleId);}catch(error){toast(error.message);}
+  }
+
+  function openCycleEdit(id){
+    const row=data.cycles.find(x=>Number(x.id)===Number(id));if(!row)return;
+    const published=row.status!=='draft';
+    openModal(published?'Extend review deadlines':'Edit cycle draft',`<div class="form-grid"><div class="field"><label>Name</label><input id="editCycleName" maxlength="120" value="${esc(row.name)}" ${published?'readonly':''}></div><div class="field"><label>Minimum peers</label><input id="editCyclePeers" type="number" min="3" max="10" value="${Number(row.min_peers)||3}" ${published?'readonly':''}></div><div class="field"><label>Period start</label><input id="editCyclePeriodStart" type="date" value="${esc(row.period_start)}" ${published?'readonly':''}></div><div class="field"><label>Period end</label><input id="editCyclePeriodEnd" type="date" value="${esc(row.period_end)}" ${published?'readonly':''}></div><div class="field"><label>Self deadline</label><input id="editCycleSelf" type="date" value="${esc(row.self_deadline)}"></div><div class="field"><label>Peer deadline</label><input id="editCyclePeer" type="date" value="${esc(row.peer_deadline)}"></div><div class="field"><label>Manager deadline</label><input id="editCycleManager" type="date" value="${esc(row.manager_deadline)}"></div>${published?'<div class="field full"><label>Extension reason</label><textarea id="editCycleReason" minlength="15" maxlength="1000"></textarea></div>':''}</div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" data-save-cycle-edit="${row.id}">Save</button>`);
+  }
+  async function saveCycleEdit(id){
+    try{await request('hr_cycle_update',{method:'POST',body:JSON.stringify({id:Number(id),name:$("#editCycleName").value.trim(),period_start:$("#editCyclePeriodStart").value,period_end:$("#editCyclePeriodEnd").value,min_peers:Number($("#editCyclePeers").value),self_deadline:$("#editCycleSelf").value,peer_deadline:$("#editCyclePeer").value,manager_deadline:$("#editCycleManager").value,reason:$("#editCycleReason")?.value.trim()||''})});closeModal();toast('Review cycle updated.','success');await load();}catch(error){toast(error.message);}
+  }
+
+  function openCompetencyForm(id=0){
+    const row=data.competencies.find(x=>Number(x.id)===Number(id))||{};
+    openModal(row.id?'Edit competency':'Add competency',`<div class="field"><label for="competencyName">Name</label><input id="competencyName" maxlength="80" value="${esc(row.name||'')}"></div><div class="field"><label for="competencyDescription">Description</label><textarea id="competencyDescription" maxlength="255">${esc(row.description||'')}</textarea></div><label><input id="competencyActive" type="checkbox" ${row.id&&!Number(row.is_active)?'':'checked'}> Active for future cycles</label>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" data-save-competency="${row.id||0}">Save</button>`);
+  }
+
+  async function saveCompetency(id){
+    try{await request('hr_competency_save',{method:'POST',body:JSON.stringify({id:Number(id),name:$("#competencyName").value.trim(),description:$("#competencyDescription").value.trim(),isActive:$("#competencyActive").checked})});closeModal();toast('Competency saved.','success');await load();}catch(error){toast(error.message);}
   }
 
   function openStartCycleForm() {
   const today = new Date().toISOString().slice(0, 10);
 
   openModal(
-    "Start review cycle",
+    "Create review-cycle draft",
     `
       <form id="startCycleForm">
         <div class="form-grid">
@@ -850,7 +900,7 @@
     `,
     `
       <button class="btn" id="cancelCycleBtn">Cancel</button>
-      <button class="btn primary" id="saveCycleBtn">Start review cycle</button>
+      <button class="btn primary" id="saveCycleBtn">Save draft</button>
     `,
   );
 
@@ -872,7 +922,7 @@
 
     if (button) {
       button.disabled = true;
-      button.textContent = "Starting...";
+      button.textContent = "Saving...";
     }
 
     try {
@@ -884,7 +934,7 @@
       closeModal();
 
       toast(
-        `Review cycle "${result.cycle.name}" started successfully.`,
+        `Review cycle draft "${result.cycle.name}" saved. Review it, then publish.`,
         "success",
       );
 
@@ -895,7 +945,7 @@
 
       if (button) {
         button.disabled = false;
-        button.textContent = "Start review cycle";
+        button.textContent = "Save draft";
       }
     }
   });
@@ -932,6 +982,3 @@ if (window.currentAuthUser) {
   start();
 }
 })();
-
-
-

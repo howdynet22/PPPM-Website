@@ -76,9 +76,9 @@ function hr_cases(string $scope = "open"): array
             LIMIT 200";
     $rows = db()->query($sql)->fetchAll();
     foreach ($rows as &$row) {
-        $row["can_overturn"] = in_array($row["cycle_status"], ["open", "peer_review"], true)
-            && !in_array($row["participant_status"], ["manager_submitted", "released"], true)
-            && (!$row["peer_deadline"] || $row["peer_deadline"] >= date("Y-m-d"));
+        $row["can_overturn"] = in_array($row["cycle_status"], ["open", "peer_review", "manager_review"], true)
+            && !in_array($row["participant_status"], ["manager_submitted", "released"], true);
+        $row['needs_response_extension'] = $row['peer_deadline'] && $row['peer_deadline'] < date('Y-m-d');
     }
     unset($row);
     return $rows;
@@ -186,12 +186,15 @@ function hr_cycles(): array
                      WHERE rp.cycle_id=rc.id AND rp.final_rating IS NOT NULL) AS average_rating
             FROM review_cycles rc
             ORDER BY rc.period_start DESC";
-    return db()->query($sql)->fetchAll();
+    $rows=db()->query($sql)->fetchAll();
+    foreach($rows as &$row) $row['readiness']=cycle_readiness((int)$row['id']);
+    unset($row);
+    return $rows;
 }
-/** Create a new review cycle and enrol active employees and managers. */
+/** Save a configurable draft. Publication performs preflight and enrolment. */
 function hr_cycle_create(array $in, array $user): array
 {
-    if (!hr_can($user, "hr.reports")) {
+    if (!hr_can($user, "hr.cycles.manage")) {
         api_error("Forbidden", 403);
     }
 
@@ -236,6 +239,10 @@ function hr_cycle_create(array $in, array $user): array
             422,
         );
     }
+    $retrospective = filter_var($in['retrospective'] ?? false,FILTER_VALIDATE_BOOLEAN);
+    if (!$retrospective && $managerDeadline < date('Y-m-d')) {
+        api_error('The manager deadline cannot already be past unless this is explicitly marked as a retrospective cycle.',422);
+    }
 
     $pdo = db();
     $pdo->beginTransaction();
@@ -246,7 +253,7 @@ function hr_cycle_create(array $in, array $user): array
                 (name, status, period_start, period_end, min_peers,
                  self_deadline, peer_deadline, manager_deadline, created_by)
              VALUES
-                (?, 'open', ?, ?, ?, ?, ?, ?, ?)"
+                (?, 'draft', ?, ?, ?, ?, ?, ?, ?)"
         );
 
         $stmt->execute([
@@ -262,54 +269,6 @@ function hr_cycle_create(array $in, array $user): array
 
         $cycleId = (int) $pdo->lastInsertId();
 
-        /*
-         * Enrol active employees and managers that have a current primary manager.
-         * Managers remain review participants in their Personal workspace while
-         * also reviewing records assigned to them in the Manager workspace.
-         */
-        $employeeStmt = $pdo->prepare(
-            "SELECT u.id,
-                    apr.reports_to_employee_id AS manager_id
-             FROM users u
-             JOIN active_primary_relationships apr
-               ON apr.employee_id = u.id
-             WHERE u.is_active = 1
-               AND u.role IN ('employee', 'manager')
-             ORDER BY u.id"
-        );
-        $employeeStmt->execute();
-        $employees = $employeeStmt->fetchAll();
-
-        $participantStmt = $pdo->prepare(
-            "INSERT INTO review_participants
-                (cycle_id, employee_id, manager_id, status)
-             VALUES (?, ?, ?, 'not_started')"
-        );
-        $selfRequestStmt = $pdo->prepare(
-            "INSERT INTO feedback_requests
-                (participant_id, respondent_id, type, status)
-             VALUES (?, ?, 'self', 'pending')"
-        );
-
-        $participantCount = 0;
-
-        foreach ($employees as $employee) {
-            $participantStmt->execute([
-                $cycleId,
-                (int) $employee["id"],
-                (int) $employee["manager_id"],
-            ]);
-            $participantId = (int) $pdo->lastInsertId();
-
-            // Without this row, the Personal dashboard has no self-review form.
-            $selfRequestStmt->execute([
-                $participantId,
-                (int) $employee["id"],
-            ]);
-
-            $participantCount++;
-        }
-
         audit(
             (int) $user["id"],
             "CREATE_REVIEW_CYCLE",
@@ -317,7 +276,7 @@ function hr_cycle_create(array $in, array $user): array
             $cycleId,
             json_encode([
                 "name" => $name,
-                "participants" => $participantCount,
+                "status" => 'draft',
             ]),
         );
 
@@ -326,10 +285,10 @@ function hr_cycle_create(array $in, array $user): array
         return [
             "id" => $cycleId,
             "name" => $name,
-            "status" => "open",
+            "status" => "draft",
             "period_start" => $periodStart,
             "period_end" => $periodEnd,
-            "participants" => $participantCount,
+            "participants" => 0,
         ];
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
@@ -368,7 +327,6 @@ function hr_cycle_advance(array $in, int $actorId): array
             "open" => "peer_review",
             "peer_review" => "manager_review",
             "manager_review" => "released",
-            "calibration" => "released",
             "released" => "closed",
         ];
         $next = $nextByStatus[$cycle["status"]] ?? null;
@@ -385,7 +343,8 @@ function hr_cycle_advance(array $in, int $actorId): array
                    ON fr.participant_id=rp.id
                   AND fr.respondent_id=rp.employee_id
                   AND fr.type='self'
-                 WHERE rp.cycle_id=? AND (fr.id IS NULL OR fr.status='pending')",
+                 WHERE rp.cycle_id=? AND (fr.id IS NULL OR fr.status<>'submitted')
+                   AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=rp.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn','waive_self'))",
             );
             $pendingSelfStmt->execute([$cycleId]);
             $pendingSelf = (int) $pendingSelfStmt->fetchColumn();
@@ -407,8 +366,9 @@ function hr_cycle_advance(array $in, int $actorId): array
                  FROM review_participants rp
                  JOIN review_cycles rc ON rc.id=rp.cycle_id
                  WHERE rp.cycle_id=?
+                   AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=rp.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn','waive_peer'))
                    AND (SELECT COUNT(*) FROM feedback_requests fr
-                        WHERE fr.participant_id=rp.id AND fr.type='peer') < rc.min_peers",
+                        WHERE fr.participant_id=rp.id AND fr.type='peer' AND fr.status IN ('pending','submitted')) < rc.min_peers",
             );
             $missingApprovedStmt->execute([$cycleId]);
             $missingApproved = (int) $missingApprovedStmt->fetchColumn();
@@ -419,6 +379,12 @@ function hr_cycle_advance(array $in, int $actorId): array
                     " the required number of approved peer reviewers before peer review can open.",
                     409,
                 );
+            }
+            $openCases=$pdo->prepare("SELECT COUNT(*) FROM peer_nomination_escalations e JOIN peer_nominations n ON n.id=e.nomination_id JOIN review_participants rp ON rp.id=n.participant_id WHERE rp.cycle_id=? AND e.status='pending_hr'");
+            $openCases->execute([$cycleId]);
+            if((int)$openCases->fetchColumn()>0){
+                $pdo->rollBack();
+                api_error('Resolve every open peer-nomination escalation before moving to peer review.',409);
             }
         }
 
@@ -441,9 +407,19 @@ function hr_cycle_advance(array $in, int $actorId): array
         }
 
         if ($next === "released") {
+            $readiness=cycle_readiness($cycleId);
+            if($readiness['peerResponseShortfall']>0){
+                $pdo->rollBack();
+                api_error($readiness['peerResponseShortfall'].' participant(s) still need peer responses or an explicit HR peer-feedback waiver.',409);
+            }
+            if($readiness['unresolvedEscalations']>0 || $readiness['inactiveManagers']>0){
+                $pdo->rollBack();
+                api_error('Resolve open escalations and reassign inactive managers before release.',409);
+            }
             $pendingStmt = $pdo->prepare(
                 "SELECT COUNT(*) FROM review_participants
-                 WHERE cycle_id=? AND status NOT IN ('manager_submitted','released')",
+                 WHERE cycle_id=? AND status NOT IN ('manager_submitted','released')
+                   AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=review_participants.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn'))",
             );
             $pendingStmt->execute([$cycleId]);
             $pending = (int) $pendingStmt->fetchColumn();
@@ -459,8 +435,11 @@ function hr_cycle_advance(array $in, int $actorId): array
             $pdo->prepare(
                 "UPDATE review_participants
                  SET status='released', released_at=COALESCE(released_at,NOW())
-                 WHERE cycle_id=? AND status='manager_submitted'",
+                 WHERE cycle_id=? AND status='manager_submitted'
+                   AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=review_participants.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn'))",
             )->execute([$cycleId]);
+
+            $pdo->prepare("UPDATE feedback_requests fr JOIN review_participants rp ON rp.id=fr.participant_id SET fr.status=CASE WHEN EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=rp.id AND x.exception_type LIKE 'waive_%' AND x.revoked_at IS NULL) THEN 'waived' ELSE 'expired' END WHERE rp.cycle_id=? AND fr.status='pending'")->execute([$cycleId]);
 
             $pdo->prepare(
                 "UPDATE review_cycles SET status='released',released_at=COALESCE(released_at,NOW()) WHERE id=?",
@@ -522,7 +501,7 @@ function hr_reports(): array
                  WHERE status NOT IN ('completed','cancelled') AND due_date < CURRENT_DATE) AS overdue_actions,
                (SELECT COUNT(*) FROM work_steps WHERE status='blocked') AS blocked_steps",
         )->fetch() ?: [],
-        "skillGaps" => $pdo->query(
+        "developmentSkills" => $pdo->query(
             "SELECT s.name AS skill_name,COUNT(*) AS action_count
              FROM pdp_actions pa JOIN skills s ON s.id=pa.skill_id
              WHERE pa.status NOT IN ('completed','cancelled')
@@ -533,7 +512,7 @@ function hr_reports(): array
 
 function hr_api(string $action): never
 {
-    $writes = ["hr_case_resolve", "hr_pip_update", "hr_cycle_create", "hr_cycle_advance"];
+    $writes = ["hr_case_resolve", "hr_pip_update", "hr_cycle_create", "hr_cycle_update", "hr_cycle_publish", "hr_cycle_advance", "hr_participant_exception", "hr_record_reassign", "hr_competency_save"];
     if (in_array($action, $writes, true)) {
         require_method("POST");
         require_csrf();
@@ -554,7 +533,7 @@ function hr_api(string $action): never
                 "ok" => true,
                 "user" => $user,
                 "metrics" => hr_overview_metrics(),
-                "directory" => hr_can($user, "hr.dashboard")
+                "directory" => hr_can($user, "hr.directory.read")
                     ? hr_directory([
                         "search" => (string) ($in["search"] ?? ""),
                         "departmentId" => (int) ($in["departmentId"] ?? 0),
@@ -574,6 +553,7 @@ function hr_api(string $action): never
                 "resolvedCases" => hr_can($user, "hr.cases") ? hr_cases("resolved") : [],
                 "pips" => hr_can($user, "hr.pips") ? hr_pips($actorId) : [],
                 "cycles" => hr_can($user, "hr.reports") ? hr_cycles() : [],
+                "competencies" => hr_can($user,"hr.competencies.manage") ? db()->query("SELECT id,name,description,is_active FROM competencies ORDER BY is_active DESC,name")->fetchAll() : [],
                 "reports" => hr_can($user, "hr.reports") ? hr_reports() : null,
                 "csrfToken" => csrf_token(),
             ];
@@ -582,6 +562,7 @@ function hr_api(string $action): never
 
         // Directory refresh for search and filter changes.
         case "hr_directory":
+            if(!hr_can($user,'hr.directory.read')) json_response(['ok'=>false,'error'=>'You do not have permission to read the employee directory'],403);
             json_response([
                 "ok" => true,
                 "directory" => hr_directory([
@@ -592,8 +573,21 @@ function hr_api(string $action): never
                 ]),
             ]);
 
+        case 'hr_cycle_participants':
+            if(!hr_can($user,'hr.cycles.manage')) json_response(['ok'=>false,'error'=>'You do not have permission to manage cycle participants'],403);
+            $cycleId=(int)($in['id']??0);
+            $stmt=db()->prepare("SELECT rp.id,u.full_name employee,m.full_name manager,m.is_active manager_active,rp.status,
+              (SELECT status FROM feedback_requests fr WHERE fr.participant_id=rp.id AND fr.type='self' LIMIT 1) self_status,
+              (SELECT COUNT(*) FROM feedback_requests fr WHERE fr.participant_id=rp.id AND fr.type='peer' AND fr.status='submitted') peer_responses,
+              rc.min_peers,
+              (SELECT GROUP_CONCAT(x.exception_type ORDER BY x.exception_type) FROM review_participant_exceptions x WHERE x.participant_id=rp.id AND x.revoked_at IS NULL) exceptions
+              FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users u ON u.id=rp.employee_id JOIN users m ON m.id=rp.action_manager_id WHERE rp.cycle_id=? ORDER BY u.full_name");
+            $stmt->execute([$cycleId]);
+            json_response(['ok'=>true,'participants'=>$stmt->fetchAll()]);
+
         // One person's record, with the reporting path and plan summaries.
         case "hr_employee":
+            if(!hr_can($user,'hr.directory.read')) json_response(['ok'=>false,'error'=>'You do not have permission to read the employee directory'],403);
             $employeeId = (int) ($in["employeeId"] ?? 0);
             $stmt = db()->prepare(
                 "SELECT u.id,u.emp_code,u.full_name,u.email,u.job_title,u.role,u.is_active,
@@ -616,8 +610,11 @@ function hr_api(string $action): never
                  FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id
                  WHERE rp.employee_id=? ORDER BY rc.period_start DESC LIMIT 10",
             );
-            $reviews->execute([$employeeId]);
-            $reviewRows = $reviews->fetchAll();
+            $reviewRows=[];
+            if(hr_can($user,'hr.reviews.read')){
+                $reviews->execute([$employeeId]);
+                $reviewRows = $reviews->fetchAll();
+            }
             foreach ($reviewRows as &$reviewRow) {
                 $self = db()->prepare(
                     "SELECT id,status,submitted_at FROM feedback_requests " .
@@ -630,8 +627,8 @@ function hr_api(string $action): never
                     $ratings = [];
                     if ($selfRequest["status"] === "submitted") {
                         $ratingStmt = db()->prepare(
-                            "SELECT c.id AS competency_id,c.name,fr.score,fr.comment " .
-                            "FROM feedback_ratings fr JOIN competencies c ON c.id=fr.competency_id " .
+                            "SELECT rcc.competency_id,rcc.name,fr.score,fr.comment " .
+                            "FROM feedback_ratings fr JOIN feedback_requests req ON req.id=fr.request_id JOIN review_participants rp ON rp.id=req.participant_id JOIN review_cycle_competencies rcc ON rcc.cycle_id=rp.cycle_id AND rcc.competency_id=fr.competency_id " .
                             "WHERE fr.request_id=? ORDER BY c.id",
                         );
                         $ratingStmt->execute([(int) $selfRequest["id"]]);
@@ -662,10 +659,77 @@ function hr_api(string $action): never
                 "reviews" => $reviewRows,
                 "pips" => hr_can($user, "hr.pips") ? $pips->fetchAll() : [],
             ]);
+        case 'hr_cycle_publish':
+            if(!hr_can($user,'hr.cycles.manage')) json_response(['ok'=>false,'error'=>'You do not have permission to publish review cycles'],403);
+            try {
+                json_response(['ok'=>true,'cycle'=>review_publish_cycle((int)($in['id']??0),$actorId)]);
+            } catch(InvalidArgumentException $e){ json_response(['ok'=>false,'error'=>$e->getMessage()],404); }
+              catch(DomainException $e){ json_response(['ok'=>false,'error'=>$e->getMessage()],409); }
+
+        case 'hr_cycle_update':
+            if(!hr_can($user,'hr.cycles.manage')) json_response(['ok'=>false,'error'=>'You do not have permission to configure review cycles'],403);
+            $id=(int)($in['id']??0); $reason=trim((string)($in['reason']??''));
+            $stmt=db()->prepare('SELECT * FROM review_cycles WHERE id=?'); $stmt->execute([$id]); $cycle=$stmt->fetch();
+            if(!$cycle) json_response(['ok'=>false,'error'=>'Review cycle not found'],404);
+            $name=trim((string)($in['name']??$cycle['name']));
+            $periodStart=(string)($in['period_start']??$cycle['period_start']);
+            $periodEnd=(string)($in['period_end']??$cycle['period_end']);
+            $self=(string)($in['self_deadline']??$cycle['self_deadline']);
+            $peer=(string)($in['peer_deadline']??$cycle['peer_deadline']);
+            $manager=(string)($in['manager_deadline']??$cycle['manager_deadline']);
+            $min=(int)($in['min_peers']??$cycle['min_peers']);
+            if($name===''||strlen($name)>120||$min<3||$min>10||!valid_date($periodStart)||!valid_date($periodEnd)||$periodEnd<$periodStart||!valid_date($self)||!valid_date($peer)||!valid_date($manager)||$self>$peer||$peer>$manager) json_response(['ok'=>false,'error'=>'Enter a valid name, performance period, peer threshold, and ordered deadlines'],422);
+            if($cycle['status']!=='draft' && strlen($reason)<15) json_response(['ok'=>false,'error'=>'A deadline extension needs a reason of at least 15 characters'],422);
+            if($cycle['status']!=='draft' && ($name!==$cycle['name']||$min!==(int)$cycle['min_peers']||$periodStart!==$cycle['period_start']||$periodEnd!==$cycle['period_end'])) json_response(['ok'=>false,'error'=>'Name, performance period and peer threshold are frozen after publication'],409);
+            if($cycle['status']!=='draft' && ($self<$cycle['self_deadline']||$peer<$cycle['peer_deadline']||$manager<$cycle['manager_deadline'])) json_response(['ok'=>false,'error'=>'Published-cycle deadlines may be extended, not shortened'],409);
+            db()->prepare('UPDATE review_cycles SET name=?,period_start=?,period_end=?,self_deadline=?,peer_deadline=?,manager_deadline=?,min_peers=? WHERE id=?')->execute([$name,$periodStart,$periodEnd,$self,$peer,$manager,$min,$id]);
+            if($cycle['status']!=='draft'){
+                db()->prepare("UPDATE feedback_requests fr JOIN review_participants rp ON rp.id=fr.participant_id SET fr.response_deadline=CASE fr.type WHEN 'self' THEN ? WHEN 'peer' THEN ? ELSE fr.response_deadline END WHERE rp.cycle_id=? AND fr.status='pending'")->execute([$self,$peer,$id]);
+                audit($actorId,'EXTEND_REVIEW_DEADLINE','review_cycle',$id,substr($reason,0,200));
+            } else audit($actorId,'UPDATE_REVIEW_DRAFT','review_cycle',$id,'Updated draft configuration');
+            json_response(['ok'=>true]);
+
+        case 'hr_participant_exception':
+            if(!hr_can($user,'hr.cycles.manage')) json_response(['ok'=>false,'error'=>'You do not have permission to manage participant exceptions'],403);
+            $participantId=(int)($in['participantId']??0); $type=(string)($in['type']??''); $reason=trim((string)($in['reason']??''));
+            if(!in_array($type,['excluded','withdrawn','waive_self','waive_peer'],true)||strlen($reason)<15||strlen($reason)>1000) json_response(['ok'=>false,'error'=>'Choose a valid exception and record a reason of 15 to 1,000 characters'],422);
+            $stmt=db()->prepare("SELECT rp.id FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id WHERE rp.id=? AND rc.status IN ('open','peer_review','manager_review')"); $stmt->execute([$participantId]);
+            if(!$stmt->fetch()) json_response(['ok'=>false,'error'=>'Active review participant not found'],404);
+            $pdo=db(); $pdo->beginTransaction();
+            try{
+                $pdo->prepare('INSERT INTO review_participant_exceptions(participant_id,exception_type,reason,granted_by) VALUES(?,?,?,?)')->execute([$participantId,$type,$reason,$actorId]);
+                if(in_array($type,['excluded','withdrawn'],true)) $pdo->prepare("UPDATE feedback_requests SET status='cancelled' WHERE participant_id=? AND status='pending'")->execute([$participantId]);
+                if($type==='waive_self') {
+                    $pdo->prepare("UPDATE feedback_requests SET status='waived' WHERE participant_id=? AND type='self' AND status='pending'")->execute([$participantId]);
+                    $pdo->prepare("UPDATE review_participants SET status='self_submitted' WHERE id=? AND status='not_started'")->execute([$participantId]);
+                }
+                if($type==='waive_peer') $pdo->prepare("UPDATE feedback_requests SET status='waived' WHERE participant_id=? AND type='peer' AND status='pending'")->execute([$participantId]);
+                audit($actorId,'REVIEW_PARTICIPANT_EXCEPTION','review_participant',$participantId,$type.': '.substr($reason,0,180)); $pdo->commit();
+            }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+            json_response(['ok'=>true]);
+
+        case 'hr_record_reassign':
+            if(!hr_can($user,'hr.records.reassign')) json_response(['ok'=>false,'error'=>'You do not have permission to reassign active records'],403);
+            $type=(string)($in['recordType']??''); $id=(int)($in['recordId']??0); $newOwner=(int)($in['newOwnerId']??0); $reason=trim((string)($in['reason']??''));
+            $map=['review_participant'=>['review_participants','action_manager_id',"status NOT IN ('released')"],'goal'=>['goals','manager_id',"status NOT IN ('completed','missed')"],'pdp'=>['pdps','manager_id',"status NOT IN ('completed','cancelled')"],'pip'=>['pips','manager_id',"status NOT IN ('successful','unsuccessful','closed')"]];
+            if(!isset($map[$type])||strlen($reason)<15||strlen($reason)>1000) json_response(['ok'=>false,'error'=>'Choose an active record and provide a reassignment reason'],422);
+            $valid=db()->prepare("SELECT COUNT(*) FROM users WHERE id=? AND is_active=1 AND EXISTS(SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_code=users.role AND p.permission_code='manager.dashboard')"); $valid->execute([$newOwner]);
+            if(!(bool)$valid->fetchColumn()) json_response(['ok'=>false,'error'=>'The new owner must be an active manager-capable user'],422);
+            [$table,$column,$open]=$map[$type]; $pdo=db(); $pdo->beginTransaction();
+            try{$stmt=$pdo->prepare("SELECT $column owner_id FROM $table WHERE id=? AND $open FOR UPDATE");$stmt->execute([$id]);$old=$stmt->fetchColumn();if($old===false){$pdo->rollBack();json_response(['ok'=>false,'error'=>'Active record not found'],404);} $pdo->prepare("UPDATE $table SET $column=? WHERE id=?")->execute([$newOwner,$id]);$pdo->prepare('INSERT INTO active_record_reassignments(record_type,record_id,previous_owner_id,new_owner_id,reason,reassigned_by) VALUES(?,?,?,?,?,?)')->execute([$type,$id,$old,$newOwner,$reason,$actorId]);audit($actorId,'REASSIGN_ACTIVE_RECORD',$type,$id,"{$old} -> {$newOwner}: ".substr($reason,0,150));$pdo->commit();}catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+            json_response(['ok'=>true]);
+
+        case 'hr_competency_save':
+            if(!hr_can($user,'hr.competencies.manage')) json_response(['ok'=>false,'error'=>'You do not have permission to manage competencies'],403);
+            $id=(int)($in['id']??0);$name=trim((string)($in['name']??''));$description=trim((string)($in['description']??''));$active=filter_var($in['isActive']??true,FILTER_VALIDATE_BOOLEAN);
+            if($name===''||strlen($name)>80||strlen($description)>255) json_response(['ok'=>false,'error'=>'Enter a competency name and optional description within the limits'],422);
+            if($id){db()->prepare('UPDATE competencies SET name=?,description=?,is_active=? WHERE id=?')->execute([$name,$description?:null,$active?1:0,$id]);}else{db()->prepare('INSERT INTO competencies(name,description,is_active) VALUES(?,?,?)')->execute([$name,$description?:null,$active?1:0]);$id=(int)db()->lastInsertId();}
+            audit($actorId,'SAVE_COMPETENCY','competency',$id,$name);json_response(['ok'=>true,'id'=>$id]);
+
                 // Start a new review cycle.
         case "hr_cycle_create":
-            if (!hr_can($user, "hr.reports")) {
-                audit($actorId, "DENIED_PERMISSION", "permission", null, "hr.reports");
+            if (!hr_can($user, "hr.cycles.manage")) {
+                audit($actorId, "DENIED_PERMISSION", "permission", null, "hr.cycles.manage");
                 json_response(
                     ["ok" => false, "error" => "You do not have permission to create review cycles"],
                     403,
@@ -679,8 +743,8 @@ function hr_api(string $action): never
 
         // Move a review cycle to the next visible stage.
         case "hr_cycle_advance":
-            if (!hr_can($user, "hr.reports")) {
-                audit($actorId, "DENIED_PERMISSION", "permission", null, "hr.reports");
+            if (!hr_can($user, "hr.cycles.manage")) {
+                audit($actorId, "DENIED_PERMISSION", "permission", null, "hr.cycles.manage");
                 json_response(
                     ["ok" => false, "error" => "You do not have permission to manage review cycles"],
                     403,
@@ -703,6 +767,7 @@ function hr_api(string $action): never
             $id = (int) ($in["id"] ?? 0);
             $outcome = (string) ($in["outcome"] ?? "");
             $note = trim((string) ($in["note"] ?? ""));
+            $revisedDeadline = trim((string)($in['responseDeadline']??''));
             if (!in_array($outcome, ["resolved_upheld", "resolved_overturned"], true)) {
                 json_response(["ok" => false, "error" => "Choose uphold or overturn"], 422);
             }
@@ -736,10 +801,8 @@ function hr_api(string $action): never
                     json_response(["ok" => false, "error" => "This escalation is already resolved"], 409);
                 }
                 if ($outcome === "resolved_overturned") {
-                    // Overturning reinstates the nomination, so the same review
-                    // window rules that bind a manager also bind HR here.
                     if (
-                        !in_array($case["cycle_status"], ["open", "peer_review"], true) ||
+                        !in_array($case["cycle_status"], ["open", "peer_review", "manager_review"], true) ||
                         in_array($case["participant_status"], ["manager_submitted", "released"], true)
                     ) {
                         $pdo->rollBack();
@@ -748,11 +811,18 @@ function hr_api(string $action): never
                             409,
                         );
                     }
-                    if ($case["peer_deadline"] && $case["peer_deadline"] < date("Y-m-d")) {
+                    $deadline=$case['peer_deadline'];
+                    if ($deadline && $deadline < date('Y-m-d')) {
+                        if(!valid_date($revisedDeadline)||$revisedDeadline<date('Y-m-d')){
+                            $pdo->rollBack();
+                            json_response(['ok'=>false,'error'=>'Set a revised peer-response deadline when overturning a case after the ordinary deadline'],422);
+                        }
+                        $deadline=$revisedDeadline;
+                    }
+                    if (!$deadline || $deadline < date("Y-m-d")) {
                         $pdo->rollBack();
                         json_response(
-                            ["ok" => false, "error" => "The peer feedback deadline has passed"],
-                            409,
+                            ["ok" => false, "error" => "Set a valid response deadline for the reinstated peer request"],422
                         );
                     }
                     // The nomination row stays as the manager's own decision
@@ -760,9 +830,9 @@ function hr_api(string $action): never
                     // override. Overwriting it here would break the invariant
                     // that an escalation only ever follows a rejection.
                     $pdo->prepare(
-                        "INSERT INTO feedback_requests(participant_id,respondent_id,type,status)
-                         VALUES(?,?,'peer','pending') ON DUPLICATE KEY UPDATE participant_id=VALUES(participant_id)",
-                    )->execute([(int) $case["participant_id"], (int) $case["peer_id"]]);
+                        "INSERT INTO feedback_requests(participant_id,respondent_id,type,status,response_deadline)
+                         VALUES(?,?,'peer','pending',?) ON DUPLICATE KEY UPDATE response_deadline=VALUES(response_deadline),status=IF(status='submitted','submitted','pending')",
+                    )->execute([(int) $case["participant_id"], (int) $case["peer_id"],$deadline]);
                 }
                 $pdo->prepare(
                     "UPDATE peer_nomination_escalations SET status=?,resolved_by=?,resolution_note=?,
@@ -824,6 +894,9 @@ function hr_api(string $action): never
             if (in_array($current["status"], ["successful", "unsuccessful", "closed"], true)) {
                 json_response(["ok" => false, "error" => "A closed plan is read-only"], 409);
             }
+            if(!pip_transition_allowed('hr',$current['status'],$status)){
+                json_response(['ok'=>false,'error'=>'That PIP governance transition is not allowed'],409);
+            }
             db()->prepare("UPDATE pips SET status=?,outcome_note=? WHERE id=?")
                 ->execute([$status, $note !== "" ? $note : null, $id]);
             audit($actorId, "UPDATE_PIP_STATUS", "pip", $id, "Status " . $status);
@@ -833,4 +906,3 @@ function hr_api(string $action): never
             json_response(["ok" => false, "error" => "Unknown action"], 404);
     }
 }
-

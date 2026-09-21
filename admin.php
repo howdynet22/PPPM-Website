@@ -124,7 +124,7 @@ function admin_overview_metrics(): array
 
 function admin_user_rows(array $filters): array
 {
-    $sql = "SELECT u.id,u.emp_code,u.full_name,u.email,u.role,u.job_title,u.is_active,
+    $sql = "SELECT u.id,u.emp_code,u.full_name,u.email,u.role,u.job_title,u.is_active,u.review_eligible,
                    u.date_joined,u.created_at,u.department_id,u.team_id,
                    r.display_name AS role_name,d.department_name,t.team_name,
                    mgr.id AS manager_id,mgr.full_name AS manager_name,
@@ -359,6 +359,7 @@ function admin_api(string $action): never
             $teamId = isset($in["teamId"]) && $in["teamId"] !== "" ? (int) $in["teamId"] : null;
             $dateJoined = trim((string) ($in["dateJoined"] ?? ""));
             $managerId = isset($in["managerId"]) && $in["managerId"] !== "" ? (int) $in["managerId"] : null;
+            $reviewEligible = filter_var($in['reviewEligible'] ?? true,FILTER_VALIDATE_BOOLEAN);
 
             if ($fullName === "" || strlen($fullName) > 120) {
                 json_response(["ok" => false, "error" => "Enter a full name"], 422);
@@ -425,7 +426,7 @@ function admin_api(string $action): never
                 $pdo->beginTransaction();
                 $pdo->prepare(
                     "UPDATE users SET full_name=?,email=?,emp_code=?,role=?,job_title=?,
-                     department_id=?,team_id=?,date_joined=? WHERE id=?",
+                     department_id=?,team_id=?,date_joined=?,review_eligible=? WHERE id=?",
                 )->execute([
                     $fullName,
                     $email,
@@ -435,6 +436,7 @@ function admin_api(string $action): never
                     $departmentId,
                     $teamId,
                     $dateJoined !== "" ? $dateJoined : null,
+                    $reviewEligible ? 1 : 0,
                     $id,
                 ]);
                 if (
@@ -458,7 +460,7 @@ function admin_api(string $action): never
                 $temporaryPassword = admin_temporary_password();
                 db()->prepare(
                     "INSERT INTO users(emp_code,full_name,email,password_hash,role,job_title,
-                     department_id,team_id,date_joined,is_active) VALUES(?,?,?,?,?,?,?,?,?,1)",
+                     department_id,team_id,date_joined,is_active,review_eligible) VALUES(?,?,?,?,?,?,?,?,?,1,?)",
                 )->execute([
                     $empCode,
                     $fullName,
@@ -469,6 +471,7 @@ function admin_api(string $action): never
                     $departmentId,
                     $teamId,
                     $dateJoined !== "" ? $dateJoined : null,
+                    $reviewEligible ? 1 : 0,
                 ]);
                 $id = (int) db()->lastInsertId();
                 audit($actorId, "CREATE_USER", "user", $id, "Created {$email} with role {$role}");
@@ -516,6 +519,14 @@ function admin_api(string $action): never
             }
             if (!$active) {
                 admin_guard_last_administrator($id);
+                $affected=db()->prepare("SELECT
+                  (SELECT COUNT(*) FROM active_primary_relationships WHERE reports_to_employee_id=?) +
+                  (SELECT COUNT(*) FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id WHERE rp.action_manager_id=? AND rc.status IN ('open','peer_review','manager_review')) +
+                  (SELECT COUNT(*) FROM goals WHERE manager_id=? AND status NOT IN ('completed','missed')) +
+                  (SELECT COUNT(*) FROM pdps WHERE manager_id=? AND status NOT IN ('completed','cancelled')) +
+                  (SELECT COUNT(*) FROM pips WHERE manager_id=? AND status NOT IN ('successful','unsuccessful','closed'))");
+                $affected->execute([$id,$id,$id,$id,$id]);
+                if((int)$affected->fetchColumn()>0) json_response(['ok'=>false,'error'=>'Reassign this person’s active reports and performance records before deactivating the account.'],409);
             }
             db()->prepare("UPDATE users SET is_active=? WHERE id=?")->execute([$active ? 1 : 0, $id]);
             audit(

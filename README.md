@@ -1,5 +1,13 @@
 # PPPM — manager / personal workspace update
 
+## System-logic audit update
+
+Apply `migrations/010_system_logic_audit.sql` after migration 009 when upgrading an existing database. Review cycles are now created as drafts and published only after preflight verifies a frozen competency framework, eligible participants, active managers, dates and the one-active-cycle rule. Deadlines mark work overdue rather than permanently locking it while its lifecycle stage is still open.
+
+Peer forms remain actionable through manager review until that participant's manager review is submitted. Manager submission and release require real submitted peer responses or an audited HR waiver; outstanding forms receive terminal states. The update also adds participant exceptions, active-record reassignment history, precise HR permissions, employee PDP agreement, HR-governed PIP transitions and manager-review optimistic concurrency.
+
+Run `node tests/system_logic_audit.mjs` for the 20 structural workflow regression contracts. On an isolated migrated database, also run `tests/system_logic_audit_checks.sql` and the existing HTTP/SQL suites. The migration intentionally removes the unused `feedback_summary` table.
+
 Based on `actionable-goal-steps` (8936ccc). This update implements the personal
 workspace and updates the manager experience. The HR and system administrator
 screens are now implemented; see "HR and administrator workspaces" below.

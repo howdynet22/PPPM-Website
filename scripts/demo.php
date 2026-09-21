@@ -44,19 +44,24 @@ function demo_reset(): void
     $actions=demo_child_ids('pdp_actions','pdp_id',$plans);
     $pips=demo_child_ids('pips','employee_id',$users);
     $goals=demo_child_ids('goals','employee_id',$users);
-    demo_delete('feedback_summary','request_id',$requests);
+    demo_delete('review_participant_exceptions','participant_id',$participants);
     demo_delete('feedback_ratings','request_id',$requests);
     demo_delete('feedback_requests','id',$requests);
     demo_delete('peer_nomination_escalations','nomination_id',$nominations);
     demo_delete('peer_nominations','participant_id',$participants);
     demo_delete('action_updates','action_id',$actions);
+    demo_delete('pdp_change_requests','pdp_id',$plans);
     demo_delete('pdp_actions','id',$actions);
     demo_delete('pdps','id',$plans);
     demo_delete('pip_checkins','pip_id',$pips);
     demo_delete('pip_objectives','pip_id',$pips);
     demo_delete('pips','id',$pips);
     demo_delete('goals','id',$goals);
+    demo_delete('active_record_reassignments','reassigned_by',$users);
+    demo_delete('active_record_reassignments','previous_owner_id',$users);
+    demo_delete('active_record_reassignments','new_owner_id',$users);
     demo_delete('review_participants','id',$participants);
+    demo_delete('review_cycle_competencies','cycle_id',demo_ids('review_cycles'));
     demo_delete('employee_skills','employee_id',$users);
     demo_delete('notification_reads','user_id',$users);
     demo_delete('audit_log','user_id',$users);
@@ -129,7 +134,7 @@ function seed_demo(): void
         if(!$manager)continue;
         // HR staff also have personal plans; self-owned until explicitly assigned by a manager.
         $owner=in_array($key,['taylor','sam'],true)?$users[$key]:$users[$manager];
-        $pdp=demo_insert('pdps',['employee_id'=>$users[$key],'manager_id'=>$owner,'summary'=>$key==='alex'?'Communicate with confidence':'A focused development goal','status'=>'agreed','agreed_at'=>date('Y-m-d H:i:s')]);
+        $pdp=demo_insert('pdps',['employee_id'=>$users[$key],'manager_id'=>$owner,'summary'=>$key==='alex'?'Communicate with confidence':'A focused development goal','status'=>'agreed','agreed_at'=>date('Y-m-d H:i:s'),'agreed_by'=>$users[$key]]);
         $action=demo_insert('pdp_actions',['pdp_id'=>$pdp,'title'=>$key==='alex'?'Present a clear project update':'Practice a useful skill for my role','description'=>'Prepare a short example, practice it, and record what improved.','due_date'=>$day($key==='alex'?'-2 days':'+30 days')]);
         demo_steps('pdp_action',$action,$owner,$key==='alex'?['Choose a project update','Draft the key message','Practice with a colleague','Present and record feedback']:['Choose a practical example','Practice and reflect'],$key==='alex'?['completed','in_progress','blocked','not_started']:($key==='morgan'?['completed','in_progress']:[]));
     }
@@ -141,18 +146,20 @@ function seed_demo(): void
     $objective=demo_insert('pip_objectives',['pip_id'=>$pip,'objective'=>'Keep support handovers current','success_criteria'=>'Each open handover has an owner and a next action.','due_date'=>$day('+28 days')]);
     demo_steps('pip_objective',$objective,$users['casey'],['Agree the handover checklist','Use the checklist for two weeks'],['completed','in_progress']);
     demo_insert('pip_checkins',['pip_id'=>$pip,'checkin_date'=>$day('-1 day'),'author_id'=>$users['casey'],'notes'=>'Checklist agreed. Review examples together next week.']);
-    $cycle=demo_insert('review_cycles',['name'=>'Demo development check-in','period_start'=>$day('-30 days'),'period_end'=>$day('+30 days'),'self_deadline'=>$day('+10 days'),'peer_deadline'=>$day('+14 days'),'manager_deadline'=>$day('+21 days'),'status'=>'open','created_by'=>$users['riley']]);
+    $cycle=demo_insert('review_cycles',['name'=>'Demo development check-in','period_start'=>$day('-30 days'),'period_end'=>$day('+30 days'),'self_deadline'=>$day('+10 days'),'peer_deadline'=>$day('+14 days'),'manager_deadline'=>$day('+21 days'),'status'=>'open','created_by'=>$users['riley'],'published_at'=>date('Y-m-d H:i:s')]);
+    foreach($competencies as $order=>$competency) db()->prepare('INSERT INTO review_cycle_competencies(cycle_id,competency_id,name,display_order) SELECT ?,id,name,? FROM competencies WHERE id=?')->execute([$cycle,$order+1,$competency]);
 
     // Demo review participation mirrors the real HR cycle rules: every active
     // employee and manager with a primary reporting manager participates. This
     // keeps demo reset from recreating the old two-person review-cycle bug.
     $cycleParticipants=[];
     foreach($entries as [$key,$name,$role,$job,$department,$teamId,$manager]) {
-        if(!$manager || !in_array($role,['employee','manager'],true)) continue;
+        if(!$manager) continue;
         $participant=demo_insert('review_participants',[
             'cycle_id'=>$cycle,
             'employee_id'=>$users[$key],
             'manager_id'=>$users[$manager],
+            'action_manager_id'=>$users[$manager],
         ]);
         $cycleParticipants[$key]=$participant;
         demo_insert('feedback_requests',[
@@ -184,8 +191,9 @@ function seed_demo(): void
         'suggestion_reason'=>'Blair worked with Alex across a longer coordination period and is likely to have broader first-hand evidence.',
         'decided_at'=>date('Y-m-d H:i:s'),
     ]);
-    $cycle=demo_insert('review_cycles',['name'=>'Previous Performance Review','period_start'=>$day('-180 days'),'period_end'=>$day('-90 days'),'status'=>'released','created_by'=>$users['riley'],'released_at'=>date('Y-m-d H:i:s')]);
-    $participant=demo_insert('review_participants',['cycle_id'=>$cycle,'employee_id'=>$users['morgan'],'manager_id'=>$users['avery'],'status'=>'released','final_rating'=>4,'manager_summary'=>'Clear priorities and thoughtful follow-through.','released_at'=>date('Y-m-d H:i:s')]);
+    $cycle=demo_insert('review_cycles',['name'=>'Previous Performance Review','period_start'=>$day('-180 days'),'period_end'=>$day('-90 days'),'status'=>'released','created_by'=>$users['riley'],'published_at'=>date('Y-m-d H:i:s'),'released_at'=>date('Y-m-d H:i:s')]);
+    foreach($competencies as $order=>$competency) db()->prepare('INSERT INTO review_cycle_competencies(cycle_id,competency_id,name,display_order) SELECT ?,id,name,? FROM competencies WHERE id=?')->execute([$cycle,$order+1,$competency]);
+    $participant=demo_insert('review_participants',['cycle_id'=>$cycle,'employee_id'=>$users['morgan'],'manager_id'=>$users['avery'],'action_manager_id'=>$users['avery'],'status'=>'released','final_rating'=>4,'manager_summary'=>'Clear priorities and thoughtful follow-through.','released_at'=>date('Y-m-d H:i:s')]);
     foreach(['jordan','riley','quinn'] as $peer){
         $request=demo_insert('feedback_requests',['participant_id'=>$participant,'respondent_id'=>$users[$peer],'type'=>'peer','status'=>'submitted','submitted_at'=>date('Y-m-d H:i:s')]);
         foreach($competencies as $competency)demo_insert('feedback_ratings',['request_id'=>$request,'competency_id'=>$competency,'score'=>4]);

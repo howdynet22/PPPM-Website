@@ -30,7 +30,7 @@ check((int)$pdo->query("SELECT COUNT(*) FROM peer_nominations pn JOIN review_par
 check((int)$pdo->query("SELECT COUNT(*) FROM peer_nomination_escalations pne JOIN peer_nominations pn ON pn.id=pne.nomination_id JOIN review_participants rp ON rp.id=pn.participant_id JOIN users u ON u.id=rp.employee_id WHERE u.email='alex@demo.pppm.test'")->fetchColumn()===0,'Demo reset should not seed an HR escalation for Alex');
 $activeCycle=(int)$pdo->query("SELECT id FROM review_cycles WHERE name='Demo development check-in' LIMIT 1")->fetchColumn();
 check($activeCycle>0,'Active demo review cycle missing');
-check((int)$pdo->query("SELECT COUNT(*) FROM review_participants WHERE cycle_id=$activeCycle")->fetchColumn()===8,'Active demo cycle should include all 5 employees and 3 managers');
+check((int)$pdo->query("SELECT COUNT(*) FROM review_participants WHERE cycle_id=$activeCycle")->fetchColumn()===12,'Active demo cycle should include every review-eligible non-CEO account with a manager');
 check((int)$pdo->query("SELECT COUNT(*) FROM review_participants rp JOIN users u ON u.id=rp.employee_id WHERE rp.cycle_id=$activeCycle AND u.role='manager'")->fetchColumn()===3,'All demo managers should participate in the active review cycle');
-check((int)$pdo->query("SELECT COUNT(*) FROM feedback_requests fr JOIN review_participants rp ON rp.id=fr.participant_id WHERE rp.cycle_id=$activeCycle AND fr.type='self'")->fetchColumn()===8,'Every active demo participant should have one self-review request');
+check((int)$pdo->query("SELECT COUNT(*) FROM feedback_requests fr JOIN review_participants rp ON rp.id=fr.participant_id WHERE rp.cycle_id=$activeCycle AND fr.type='self'")->fetchColumn()===12,'Every active demo participant should have one self-review request');
 echo "PASS: reset preserves unrelated data, restores the full employee/manager review cycle, keeps nomination examples, and seed is idempotent.\n";

@@ -1,0 +1,70 @@
+name: System logic audit
+
+on:
+  pull_request:
+  push:
+    branches: [fix/system-logic-audit]
+
+jobs:
+  workflow-regression:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build isolated database
+        run: |
+          sed 's/perf_tracker/pppm_test/g' schema.sql > /tmp/pppm-test-schema.sql
+          mysql -h127.0.0.1 -uroot -proot < /tmp/pppm-test-schema.sql
+        env:
+          MYSQL_PWD: root
+      - name: Seed and verify fixtures
+        run: |
+          php scripts/demo.php seed
+          php tests/demo_reset.php
+          php tests/work_progress.php
+        env:
+          PPPM_DB_HOST: 127.0.0.1
+          PPPM_DB_NAME: pppm_test
+          PPPM_DB_USER: root
+          PPPM_DB_PASS: root
+      - name: Static and structural checks
+        run: |
+          for file in *.php scripts/*.php tests/*.php; do php -l "$file"; done
+          for file in Js/*.js tests/*.mjs; do node --check "$file"; done
+          node tests/system_logic_audit.mjs
+      - name: HTTP workflow tests
+        run: |
+          php -S 127.0.0.1:8080 -t . >/tmp/pppm-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for attempt in {1..20}; do curl -fsS http://127.0.0.1:8080/index.html >/dev/null && break; sleep 1; done
+          PPPM_TEST_URL=http://127.0.0.1:8080 node tests/employee_workspaces.mjs
+        env:
+          PPPM_DB_HOST: 127.0.0.1
+          PPPM_DB_NAME: pppm_test
+          PPPM_DB_USER: root
+          PPPM_DB_PASS: root
+      - name: Database invariants
+        run: |
+          output=$(mysql -N -h127.0.0.1 -uroot -proot pppm_test < tests/system_logic_audit_checks.sql)
+          test -z "$output" || { echo "$output"; exit 1; }
+          mysql -h127.0.0.1 -uroot -proot pppm_test < tests/organization_checks.sql
+          mysql -h127.0.0.1 -uroot -proot pppm_test < tests/actionable_steps_checks.sql
+          mysql -h127.0.0.1 -uroot -proot pppm_test < tests/peer_nomination_checks.sql
+          mysql -h127.0.0.1 -uroot -proot pppm_test < tests/review_nomination_workflow_checks.sql

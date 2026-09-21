@@ -87,6 +87,11 @@ function json_response(array $payload, int $status = 200): never
     exit();
 }
 
+function api_error(string $message, int $status = 400): never
+{
+    json_response(['ok'=>false,'error'=>$message],$status);
+}
+
 function require_method(string $method): void
 {
     if (($_SERVER["REQUEST_METHOD"] ?? "GET") !== $method) {
@@ -277,7 +282,7 @@ function participant_for_manager(int $managerId, int $participantId): ?array
     FROM review_participants rp
     JOIN review_cycles rc ON rc.id = rp.cycle_id
     WHERE rp.id = ?
-      AND rp.manager_id = ?
+      AND rp.action_manager_id = ?
     SQL;
     $stmt = db()->prepare($sql);
     $stmt->execute([$participantId, $managerId]);

@@ -243,7 +243,7 @@ function sync_pdp_status(PDO $pdo, int $planId): void
     $stmt->execute([$planId]);
     $counts = $stmt->fetch();
     $complete = (int) $counts['total'] > 0 && (int) $counts['total'] === (int) $counts['completed'];
-    $pdo->prepare("UPDATE pdps SET status=CASE WHEN ?=1 THEN 'completed' WHEN status='completed' THEN IF(agreed_at IS NULL,'draft','agreed') ELSE status END WHERE id=? AND status<>'cancelled'")->execute([$complete ? 1 : 0, $planId]);
+    $pdo->prepare("UPDATE pdps SET status=CASE WHEN ?=1 AND status IN ('agreed','completed') THEN 'completed' WHEN status='completed' THEN 'agreed' ELSE status END WHERE id=? AND status<>'cancelled'")->execute([$complete ? 1 : 0, $planId]);
 }
 
 // All step-definition mutations use the same plan -> item lock order as progress writes.

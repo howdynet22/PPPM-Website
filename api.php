@@ -7,6 +7,7 @@ start_app_session();
 $action = $_GET["action"] ?? "";
 
 require_once __DIR__ . "/work-steps.php";
+require_once __DIR__ . "/review-workflow.php";
 require_once __DIR__ . "/workspaces.php";
 require_once __DIR__ . "/hr.php";
 require_once __DIR__ . "/admin.php";
@@ -15,7 +16,7 @@ try {
     if (str_starts_with((string) $action, "org_")) { organization_api((string) $action); }
     if (str_starts_with((string) $action, "hr_")) { hr_api((string) $action); }
     if (str_starts_with((string) $action, "admin_")) { admin_api((string) $action); }
-    if (in_array($action, ["workspace", "work_item", "set_step_status", "submit_personal_feedback", "feedback_form", "create_peer_nomination", "escalate_peer_nomination"], true)) { workspace_api($action); }
+    if (in_array($action, ["workspace", "work_item", "set_step_status", "submit_personal_feedback", "feedback_form", "create_peer_nomination", "escalate_peer_nomination", "agree_pdp", "request_pdp_changes"], true)) { workspace_api($action); }
     switch ($action) {
         // Login functions.
         case "login":
@@ -264,7 +265,7 @@ try {
                  LEFT JOIN active_primary_relationships ar ON ar.employee_id=u.id
                  LEFT JOIN users direct_manager ON direct_manager.id=ar.reports_to_employee_id
                  WHERE u.is_active=1 AND u.id<>? AND (ar.reports_to_employee_id=?
-                   OR u.id IN (SELECT employee_id FROM review_participants WHERE manager_id=?)
+                   OR u.id IN (SELECT employee_id FROM review_participants WHERE action_manager_id=?)
                    OR u.id IN (SELECT employee_id FROM goals WHERE manager_id=?)
                    OR u.id IN (SELECT employee_id FROM pdps WHERE manager_id=?)
                    OR u.id IN (SELECT employee_id FROM pips WHERE manager_id=?)" .
@@ -286,11 +287,11 @@ try {
             foreach ($employees as &$e) {
                 $eid = (int) $e["id"];
                 $stmt = $pdo->prepare(
-                    "SELECT rp.id participant_id, rp.cycle_id, rc.name cycle_name, rc.status cycle_status, rc.manager_deadline, " .
+                    "SELECT rp.id participant_id, rp.cycle_id, rp.version, rc.name cycle_name, rc.status cycle_status, rc.manager_deadline, " .
                         "rp.status review_status, rp.final_rating rating, rp.manager_summary, " .
                         "owner.full_name review_manager FROM review_participants rp " .
-                        "JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users owner ON owner.id=rp.manager_id WHERE " .
-                        "rp.employee_id=? AND rp.manager_id=? ORDER BY rp.id DESC LIMIT 1",
+                        "JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users owner ON owner.id=rp.action_manager_id WHERE " .
+                        "rp.employee_id=? AND rp.action_manager_id=? AND rc.status IN ('open','peer_review','manager_review') ORDER BY rp.id DESC LIMIT 1",
                 );
                 $stmt->execute([$eid, $mid]);
                 $review = $stmt->fetch() ?: null;
@@ -302,6 +303,7 @@ try {
                 $e["reviewStatusCode"] =
                     $review["review_status"] ?? "not_started";
                 $e["managerSummary"] = $review["manager_summary"] ?? "";
+                $e["reviewVersion"] = isset($review["version"]) ? (int)$review["version"] : null;
                 $e["reviewManager"] = $review["review_manager"] ?? null;
                 $e["review"] = match (
                     $review["review_status"] ?? "not_started"
@@ -333,9 +335,9 @@ try {
                         $selfRatings = [];
                         if ($selfRequest["status"] === "submitted") {
                             $ratingsStmt = $pdo->prepare(
-                                "SELECT c.id AS competencyId,c.name,fr.score,fr.comment " .
-                                "FROM feedback_ratings fr JOIN competencies c ON c.id=fr.competency_id " .
-                                "WHERE fr.request_id=? ORDER BY c.id",
+                                "SELECT rcc.competency_id AS competencyId,rcc.name,fr.score,fr.comment " .
+                                "FROM feedback_ratings fr JOIN review_cycle_competencies rcc ON rcc.cycle_id=".(int)$review['cycle_id']." AND rcc.competency_id=fr.competency_id " .
+                                "WHERE fr.request_id=? ORDER BY rcc.display_order",
                             );
                             $ratingsStmt->execute([(int) $selfRequest["id"]]);
                             $selfRatings = $ratingsStmt->fetchAll();
@@ -410,7 +412,7 @@ try {
                     "JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users emp ON emp.id=rp.employee_id " .
                     "JOIN users peer ON peer.id=pn.peer_id LEFT JOIN users suggested ON suggested.id=pn.suggested_peer_id " .
                     "LEFT JOIN peer_nomination_escalations pne ON " .
-                    "pne.nomination_id=pn.id WHERE rp.manager_id=? ORDER BY pn.created_at DESC",
+                    "pne.nomination_id=pn.id WHERE rp.action_manager_id=? ORDER BY pn.created_at DESC",
             );
             $stmt->execute([$mid]);
             $peerNominations = array_map(
@@ -505,7 +507,7 @@ try {
 
             $stmt = $pdo->prepare(
                 "SELECT pa.id, p.employee_id, u.full_name employee, pa.title, pa.description, " .
-                    "pa.due_date due, pa.status, p.id pdp_id FROM pdp_actions " .
+                    "pa.due_date due, pa.status, p.status plan_status,p.id pdp_id,(SELECT note FROM pdp_change_requests cr WHERE cr.pdp_id=p.id AND cr.status='pending' LIMIT 1) change_request FROM pdp_actions " .
                     "pa JOIN pdps p ON p.id=pa.pdp_id JOIN users u ON u.id=p.employee_id WHERE " .
                     "p.manager_id=? AND p.employee_id<>? AND p.status<>'cancelled' AND pa.status <> 'cancelled' ORDER BY pa.due_date",
             );
@@ -520,6 +522,8 @@ try {
                     "description" => $r["description"],
                     "due" => $r["due"],
                     "status" => ucwords(str_replace("_", " ", $r["status"])),
+                    "planStatus" => $r['plan_status'],
+                    "changeRequest" => $r['change_request'],
                 ],
                 $stmt->fetchAll(),
             );
@@ -590,7 +594,7 @@ try {
             }
 
             $stmt = $pdo->prepare(
-                "SELECT id,name FROM competencies WHERE is_active=1 ORDER BY id",
+                "SELECT rcc.competency_id id,rcc.name FROM review_cycle_competencies rcc JOIN review_cycles rc ON rc.id=rcc.cycle_id WHERE rc.status IN ('open','peer_review','manager_review') ORDER BY rcc.display_order",
             );
             $stmt->execute();
             $competencies = $stmt->fetchAll();
@@ -793,6 +797,18 @@ try {
                     409,
                 );
             }
+            $peerSubmittedStmt = db()->prepare("SELECT COUNT(*) FROM feedback_requests WHERE participant_id=? AND type='peer' AND status='submitted'");
+            $peerSubmittedStmt->execute([$participantId]);
+            $minimumStmt = db()->prepare("SELECT min_peers FROM review_cycles WHERE id=?");
+            $minimumStmt->execute([(int)$participant['cycle_id']]);
+            $peerSubmitted = (int)$peerSubmittedStmt->fetchColumn();
+            $minimumPeers = (int)$minimumStmt->fetchColumn();
+            if ($peerSubmitted < $minimumPeers && !review_exception_active($participantId, 'waive_peer')) {
+                json_response([
+                    'ok'=>false,
+                    'error'=>"This participant has {$peerSubmitted} of {$minimumPeers} required peer responses. HR must record a peer-feedback waiver before manager submission.",
+                ],409);
+            }
             $rating = (float) ($in["rating"] ?? 0);
             if ($rating < 1 || $rating > 5) {
                 json_response(
@@ -824,14 +840,7 @@ try {
                     422,
                 );
             }
-            $activeIds = array_map(
-                "intval",
-                db()
-                    ->query(
-                        "SELECT id FROM competencies WHERE is_active=1 ORDER BY id",
-                    )
-                    ->fetchAll(PDO::FETCH_COLUMN),
-            );
+            $activeIds = array_map('intval', array_column(cycle_competencies((int)$participant['cycle_id']), 'id'));
             $submittedIds = [];
             foreach ($competencyRatings as $c) {
                 $cid = (int) ($c["competencyId"] ?? 0);
@@ -861,11 +870,20 @@ try {
             }
             $pdo = db();
             $pdo->beginTransaction();
+            $locked = $pdo->prepare("SELECT version FROM review_participants WHERE id=? AND action_manager_id=? FOR UPDATE");
+            $locked->execute([$participantId,$manager['id']]);
+            $currentVersion = $locked->fetchColumn();
+            if ($currentVersion === false || !isset($in['version']) || (int)$in['version'] !== (int)$currentVersion) {
+                $pdo->rollBack();
+                json_response(['ok'=>false,'error'=>'This review changed since you opened it. Refresh and try again.'],409);
+            }
             $stmt = $pdo->prepare(
                 "UPDATE review_participants SET final_rating=?, manager_summary=?, " .
-                    "status='manager_submitted' WHERE id=? AND manager_id=?",
+                    "status='manager_submitted',version=version+1 WHERE id=? AND action_manager_id=?",
             );
             $stmt->execute([$rating, $summary, $participantId, $manager["id"]]);
+            $pdo->prepare("UPDATE feedback_requests SET status='expired' WHERE participant_id=? AND type='peer' AND status='pending'")
+                ->execute([$participantId]);
             $stmt = $pdo->prepare(
                 "SELECT id FROM feedback_requests WHERE participant_id=? AND respondent_id=? AND " .
                     "type='manager' LIMIT 1",
@@ -947,7 +965,7 @@ try {
                     "rc.status cycle_status,rc.peer_deadline FROM peer_nominations pn " .
                     "JOIN review_participants rp ON rp.id=pn.participant_id " .
                     "JOIN review_cycles rc ON rc.id=rp.cycle_id " .
-                    "WHERE pn.id=? AND rp.manager_id=? FOR UPDATE",
+                    "WHERE pn.id=? AND rp.action_manager_id=? FOR UPDATE",
             );
             $stmt->execute([$id, $manager["id"]]);
             $nomination = $stmt->fetch();
@@ -967,9 +985,9 @@ try {
                 $pdo->rollBack();
                 json_response(["ok" => false, "error" => "Peer decisions are closed for this review cycle"], 409);
             }
-            if ($status === "approved" && $nomination["peer_deadline"] && $nomination["peer_deadline"] < date("Y-m-d")) {
+            if ($nomination["peer_deadline"] && $nomination["peer_deadline"] < date("Y-m-d")) {
                 $pdo->rollBack();
-                json_response(["ok" => false, "error" => "The peer feedback deadline has passed"], 409);
+                json_response(["ok" => false, "error" => "The peer decision window has closed. HR must use the exception workflow."], 409);
             }
             if ($status === "rejected" && $suggestedPeerId > 0) {
                 $candidate = $pdo->prepare(
@@ -1001,10 +1019,10 @@ try {
             ]);
             if ($status === "approved") {
                 $stmt = $pdo->prepare(
-                    "INSERT INTO feedback_requests(participant_id,respondent_id,type,status) VALUES(?,?,'peer','pending') " .
+                    "INSERT INTO feedback_requests(participant_id,respondent_id,type,status,response_deadline) VALUES(?,?,'peer','pending',?) " .
                         "ON DUPLICATE KEY UPDATE id=id",
                 );
-                $stmt->execute([(int)$nomination["participant_id"], (int)$nomination["peer_id"]]);
+                $stmt->execute([(int)$nomination["participant_id"], (int)$nomination["peer_id"], $nomination['peer_deadline']]);
             }
             audit(
                 (int) $manager["id"],
@@ -1197,6 +1215,7 @@ try {
             $description = trim((string) ($in["description"] ?? ""));
             $due = (string) ($in["due"] ?? "");
             $steps = normalize_work_steps($in["steps"] ?? null);
+            $sourceParticipantId = (int)($in['participantId'] ?? 0);
             if (
                 $title === "" ||
                 strlen($title) > 200 ||
@@ -1224,6 +1243,11 @@ try {
             }
             $pdo = db();
             $pdo->beginTransaction();
+            if($sourceParticipantId>0){
+                $source=$pdo->prepare('SELECT id FROM review_participants WHERE id=? AND employee_id=? AND action_manager_id=?');
+                $source->execute([$sourceParticipantId,$eid,$manager['id']]);
+                if(!$source->fetch()){$pdo->rollBack();json_response(['ok'=>false,'error'=>'The selected source review is not assigned to this employee and manager'],422);}
+            }
             $stmt = $pdo->prepare(
                 "SELECT id FROM pdps WHERE employee_id=? AND manager_id=? AND status IN " .
                     "('draft','agreed') ORDER BY id DESC LIMIT 1",
@@ -1232,11 +1256,16 @@ try {
             $p = $stmt->fetch();
             if ($p) {
                 $pdpId = (int) $p["id"];
+                if($sourceParticipantId>0){
+                    $pdo->prepare('UPDATE pdps SET participant_id=COALESCE(participant_id,?) WHERE id=?')->execute([$sourceParticipantId,$pdpId]);
+                    $linked=$pdo->prepare('SELECT participant_id FROM pdps WHERE id=?');$linked->execute([$pdpId]);
+                    if((int)$linked->fetchColumn()!==$sourceParticipantId){$pdo->rollBack();json_response(['ok'=>false,'error'=>'The active development plan is linked to a different review'],409);}
+                }
             } else {
                 $stmt = $pdo->prepare(
-                    "INSERT INTO pdps(employee_id,manager_id,summary,status) VALUES(?,?,?,'draft')",
+                    "INSERT INTO pdps(employee_id,manager_id,participant_id,summary,status) VALUES(?,?,NULLIF(?,0),?,'draft')",
                 );
-                $stmt->execute([$eid, $manager["id"], "Development plan"]);
+                $stmt->execute([$eid, $manager["id"],$sourceParticipantId, "Development plan"]);
                 $pdpId = (int) $pdo->lastInsertId();
             }
             $stmt = $pdo->prepare(
@@ -1340,6 +1369,8 @@ try {
             $pdo->prepare(
                 "UPDATE pdp_actions SET title=?,status=?,completed_at=$completedAt WHERE id=?",
             )->execute([$title, $status, $id]);
+            $pdo->prepare("UPDATE pdp_change_requests cr JOIN pdp_actions pa ON pa.pdp_id=cr.pdp_id SET cr.status='resolved',cr.resolved_by=?,cr.resolved_at=NOW() WHERE pa.id=? AND cr.status='pending'")
+                ->execute([$manager['id'],$id]);
             if ($note !== "") {
                 $pdo->prepare(
                     "INSERT INTO action_updates(action_id,author_id,note,new_status) VALUES(?,?,?,?)",
@@ -1612,9 +1643,6 @@ try {
             $pdo->prepare(
                 "INSERT INTO pip_checkins(pip_id,checkin_date,author_id,notes) VALUES(?,?,?,?)",
             )->execute([$pipId, $date, $manager["id"], $notes]);
-            $pdo->prepare(
-                "UPDATE pips SET status=IF(status='draft','active',status) WHERE id=?",
-            )->execute([$pipId]);
             audit(
                 (int) $manager["id"],
                 "ADD_PIP_CHECKIN",
@@ -1662,6 +1690,9 @@ try {
                     422,
                 );
             }
+            if(strlen($note)<15){
+                json_response(['ok'=>false,'error'=>'Describe the recommendation to HR using at least 15 characters'],422);
+            }
             $pdo = db();
             $stmt = $pdo->prepare(
                 "SELECT id,status FROM pips WHERE id=? AND manager_id=?",
@@ -1671,30 +1702,11 @@ try {
             if (!$pip) {
                 json_response(["ok" => false, "error" => "PIP not found"], 404);
             }
-            $transitions = [
-                "draft" => ["draft", "active", "closed"],
-                "active" => [
-                    "active",
-                    "extended",
-                    "successful",
-                    "unsuccessful",
-                    "closed",
-                ],
-                "extended" => [
-                    "extended",
-                    "successful",
-                    "unsuccessful",
-                    "closed",
-                ],
-                "successful" => ["successful", "closed"],
-                "unsuccessful" => ["unsuccessful", "closed"],
-                "closed" => ["closed"],
-            ];
-            if (!in_array($status, $transitions[$pip["status"]] ?? [], true)) {
+            if (!pip_transition_allowed('manager',$pip['status'],$status)) {
                 json_response(
                     [
                         "ok" => false,
-                        "error" => "That PIP status transition is not allowed",
+                        "error" => "Managers may record check-ins and recommendations, but only the HR owner can change the PIP governance state.",
                     ],
                     409,
                 );
@@ -1716,15 +1728,14 @@ try {
                     422,
                 );
             }
-            $pdo->prepare(
-                "UPDATE pips SET status=?,outcome_note=? WHERE id=?",
-            )->execute([$status, $note ?: null, $id]);
+            $pdo->prepare("UPDATE pips SET outcome_note=IF(?='',outcome_note,?) WHERE id=?")
+                ->execute([$note,$note,$id]);
             audit(
                 (int) $manager["id"],
                 "UPDATE_PIP_STATUS",
                 "pip",
                 $id,
-                "Updated PIP status from " . $pip["status"] . " to " . $status,
+                "Manager recommendation recorded; governance state remains " . $pip['status'],
             );
             json_response(["ok" => true]);
 

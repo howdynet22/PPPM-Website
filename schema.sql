@@ -186,6 +186,7 @@ CREATE TABLE users (
   team_id INT NULL,
   date_joined DATE,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
+  review_eligible TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_user_department FOREIGN KEY (department_id) REFERENCES departments(id),
   CONSTRAINT fk_user_team_department FOREIGN KEY (team_id,department_id) REFERENCES teams(id,department_id),
@@ -314,7 +315,7 @@ CREATE TABLE employee_skills (
 -- ============================================================
 CREATE TABLE review_cycles (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(100) NOT NULL, -- 'H1 2026 Review'
+  name VARCHAR(120) NOT NULL, -- 'H1 2026 Review'
   period_start DATE NOT NULL, -- period being judged
   period_end DATE NOT NULL,
   self_deadline DATE,
@@ -325,12 +326,12 @@ CREATE TABLE review_cycles (
     'open',
     'peer_review',
     'manager_review',
-    'calibration',
     'released',
     'closed'
   ) NOT NULL DEFAULT 'draft',
   min_peers TINYINT NOT NULL DEFAULT 3 CHECK (min_peers >= 3),
   created_by INT,
+  published_at DATETIME NULL,
   released_at DATETIME NULL,
   CONSTRAINT fk_cycle_creator FOREIGN KEY (created_by) REFERENCES users (id),
   CONSTRAINT chk_cycle_dates CHECK (period_end >= period_start)
@@ -345,6 +346,7 @@ CREATE TABLE review_participants (
   cycle_id INT NOT NULL,
   employee_id INT NOT NULL,
   manager_id INT NOT NULL, -- snapshot: manager at the time
+  action_manager_id INT NOT NULL, -- current actionable owner; history stays in manager_id
   status ENUM(
     'not_started',
     'self_submitted',
@@ -355,9 +357,11 @@ CREATE TABLE review_participants (
   final_rating DECIMAL(3, 2) NULL CHECK (final_rating BETWEEN 1 AND 5),
   manager_summary TEXT NULL,
   released_at DATETIME NULL,
+  version INT UNSIGNED NOT NULL DEFAULT 1,
   CONSTRAINT fk_rp_cycle FOREIGN KEY (cycle_id) REFERENCES review_cycles (id),
   CONSTRAINT fk_rp_emp FOREIGN KEY (employee_id) REFERENCES users (id),
   CONSTRAINT fk_rp_mgr FOREIGN KEY (manager_id) REFERENCES users (id),
+  CONSTRAINT fk_rp_action_mgr FOREIGN KEY (action_manager_id) REFERENCES users (id),
   UNIQUE KEY uq_cycle_emp (cycle_id, employee_id)
 );
 
@@ -417,7 +421,8 @@ CREATE TABLE feedback_requests (
   participant_id INT NOT NULL,
   respondent_id INT NOT NULL, -- WHO is filling it in
   type ENUM('self', 'manager', 'peer') NOT NULL,
-  status ENUM('pending', 'submitted') DEFAULT 'pending',
+  status ENUM('pending', 'submitted', 'expired', 'cancelled', 'waived') DEFAULT 'pending',
+  response_deadline DATE NULL,
   submitted_at DATETIME NULL,
   CONSTRAINT fk_fr_part FOREIGN KEY (participant_id) REFERENCES review_participants (id),
   CONSTRAINT fk_fr_resp FOREIGN KEY (respondent_id) REFERENCES users (id),
@@ -441,12 +446,48 @@ CREATE TABLE feedback_ratings (
 );
 
 
-CREATE TABLE feedback_summary (
+-- Immutable competency rubric used by every form in a published cycle.
+CREATE TABLE review_cycle_competencies (
+  cycle_id INT NOT NULL,
+  competency_id INT NOT NULL,
+  name VARCHAR(80) NOT NULL,
+  description VARCHAR(255),
+  display_order SMALLINT UNSIGNED NOT NULL,
+  PRIMARY KEY (cycle_id, competency_id),
+  UNIQUE KEY uq_cycle_comp_order (cycle_id, display_order),
+  CONSTRAINT fk_rcc_cycle FOREIGN KEY (cycle_id) REFERENCES review_cycles(id),
+  CONSTRAINT fk_rcc_comp FOREIGN KEY (competency_id) REFERENCES competencies(id)
+);
+
+CREATE TABLE review_participant_exceptions (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  request_id INT NOT NULL UNIQUE,
-  strengths TEXT,
-  improvements TEXT,
-  CONSTRAINT fk_fs_req FOREIGN KEY (request_id) REFERENCES feedback_requests (id)
+  participant_id INT NOT NULL,
+  exception_type ENUM('excluded','withdrawn','waive_self','waive_peer') NOT NULL,
+  reason VARCHAR(1000) NOT NULL,
+  granted_by INT NOT NULL,
+  granted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  revoked_by INT NULL,
+  revoked_at DATETIME NULL,
+  active_exception TINYINT GENERATED ALWAYS AS (CASE WHEN revoked_at IS NULL THEN 1 ELSE NULL END) STORED,
+  UNIQUE KEY uq_active_participant_exception (participant_id,exception_type,active_exception),
+  FOREIGN KEY (participant_id) REFERENCES review_participants(id),
+  FOREIGN KEY (granted_by) REFERENCES users(id),
+  FOREIGN KEY (revoked_by) REFERENCES users(id)
+);
+
+CREATE TABLE active_record_reassignments (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  record_type ENUM('review_participant','goal','pdp','pip') NOT NULL,
+  record_id INT NOT NULL,
+  previous_owner_id INT NOT NULL,
+  new_owner_id INT NOT NULL,
+  reason VARCHAR(1000) NOT NULL,
+  reassigned_by INT NOT NULL,
+  reassigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (previous_owner_id) REFERENCES users(id),
+  FOREIGN KEY (new_owner_id) REFERENCES users(id),
+  FOREIGN KEY (reassigned_by) REFERENCES users(id),
+  KEY idx_reassignment_record (record_type,record_id)
 );
 
 
@@ -483,9 +524,11 @@ CREATE TABLE pdps (
   summary TEXT,
   status ENUM('draft', 'agreed', 'completed', 'cancelled') DEFAULT 'draft',
   agreed_at DATETIME NULL,
+  agreed_by INT NULL,
   CONSTRAINT fk_pdp_emp FOREIGN KEY (employee_id) REFERENCES users (id),
   CONSTRAINT fk_pdp_mgr FOREIGN KEY (manager_id) REFERENCES users (id),
-  CONSTRAINT fk_pdp_part FOREIGN KEY (participant_id) REFERENCES review_participants (id)
+  CONSTRAINT fk_pdp_part FOREIGN KEY (participant_id) REFERENCES review_participants (id),
+  CONSTRAINT fk_pdp_agreed_by FOREIGN KEY (agreed_by) REFERENCES users (id)
 );
 
 
@@ -506,6 +549,22 @@ CREATE TABLE pdp_actions (
   completed_at DATETIME NULL,
   CONSTRAINT fk_pa_pdp FOREIGN KEY (pdp_id) REFERENCES pdps (id),
   CONSTRAINT fk_pa_skill FOREIGN KEY (skill_id) REFERENCES skills (id)
+);
+
+CREATE TABLE pdp_change_requests (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  pdp_id INT NOT NULL,
+  requested_by INT NOT NULL,
+  note TEXT NOT NULL,
+  status ENUM('pending','resolved') NOT NULL DEFAULT 'pending',
+  requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_by INT NULL,
+  resolved_at DATETIME NULL,
+  active_request TINYINT GENERATED ALWAYS AS (CASE WHEN status='pending' THEN 1 ELSE NULL END) STORED,
+  UNIQUE KEY uq_active_pdp_change_request (pdp_id,active_request),
+  FOREIGN KEY (pdp_id) REFERENCES pdps(id),
+  FOREIGN KEY (requested_by) REFERENCES users(id),
+  FOREIGN KEY (resolved_by) REFERENCES users(id)
 );
 
 
@@ -611,13 +670,14 @@ CREATE OR REPLACE VIEW v_peer_feedback AS
 SELECT
   fr.participant_id,
   fr.id AS request_id,
-  c.name AS competency,
+  rcc.name AS competency,
   frt.score,
   frt.comment
 FROM
   feedback_requests fr
   JOIN feedback_ratings frt ON frt.request_id = fr.id
-  JOIN competencies c ON c.id = frt.competency_id
+  JOIN review_participants rp ON rp.id=fr.participant_id
+  JOIN review_cycle_competencies rcc ON rcc.cycle_id=rp.cycle_id AND rcc.competency_id=frt.competency_id
 WHERE
   fr.type = 'peer'
   AND fr.status = 'submitted';
@@ -628,19 +688,20 @@ WHERE
 CREATE OR REPLACE VIEW v_360_summary AS
 SELECT
   fr.participant_id,
-  c.name AS competency,
+  rcc.name AS competency,
   fr.type,
   ROUND(AVG(frt.score), 2) AS avg_score,
   COUNT(*) AS responses
 FROM
   feedback_requests fr
   JOIN feedback_ratings frt ON frt.request_id = fr.id
-  JOIN competencies c ON c.id = frt.competency_id
+  JOIN review_participants rp ON rp.id=fr.participant_id
+  JOIN review_cycle_competencies rcc ON rcc.cycle_id=rp.cycle_id AND rcc.competency_id=frt.competency_id
 WHERE
   fr.status = 'submitted'
 GROUP BY
   fr.participant_id,
-  c.name,
+  rcc.name,
   fr.type;
 
 
@@ -710,11 +771,19 @@ INSERT IGNORE INTO role_permissions(role_code,permission_id)
 -- Keep this in the fresh-install schema as well as migration 005.
 INSERT IGNORE INTO permissions(permission_code,description) VALUES
  ('hr.cases','Resolve escalated peer-nomination decisions'),
- ('admin.audit','Read the audit log and sign-in security records');
+ ('admin.audit','Read the audit log and sign-in security records'),
+ ('hr.cycles.manage','Configure, publish and manage review cycles'),
+ ('hr.directory.read','Read employee directory and reporting metadata'),
+ ('hr.reviews.read','Read protected employee review summaries'),
+ ('hr.competencies.manage','Manage the review competency framework'),
+ ('hr.records.reassign','Reassign active performance records');
 INSERT IGNORE INTO role_permissions(role_code,permission_id)
  SELECT r.role_code,p.id FROM roles r CROSS JOIN permissions p
  WHERE (p.permission_code='hr.cases' AND r.role_code IN ('hr','hr_partner','admin'))
-    OR (p.permission_code='admin.audit' AND r.role_code='admin');
+    OR (p.permission_code='admin.audit' AND r.role_code='admin')
+    OR (p.permission_code IN ('hr.cycles.manage','hr.directory.read','hr.reviews.read','hr.competencies.manage','hr.records.reassign') AND r.role_code IN ('hr','admin'))
+    OR (p.permission_code IN ('hr.directory.read','hr.reviews.read','hr.records.reassign') AND r.role_code='hr_partner')
+    OR (p.permission_code='hr.directory.read' AND r.role_code='hr_coordinator');
 
 -- Only explicitly registered demo users belong to the resettable fixture.
 CREATE TABLE demo_users (
