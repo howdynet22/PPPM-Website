@@ -102,7 +102,7 @@ await casey.call('update_pip_status',{id:Number(hrPlans[0].id),status:'closed',n
 await hr.call('hr_pip_update',{id:Number(hrPlans[0].id),status:'closed',outcomeNote:'HR reviewed the evidence and formally closed this plan.'});
 await hr.call('set_step_status',{id:objective.steps[0].id,status:'not_started'},409);
 const privateReview=own.reviews[0];assert.equal(privateReview.final_rating,null);assert.equal(privateReview.manager_summary,null);assert.deepEqual(privateReview.feedback,[]);
-const released=(await morgan.call('workspace&scope=employee')).data.reviews[0];assert.equal(released.feedback.length,3);assert(!JSON.stringify(released.feedback).includes('respondent'));
+const released=(await morgan.call('workspace&scope=employee')).data.reviews.find(review=>review.status==='released');assert(released,'Expected Morgan\'s released historical review');assert.equal(released.feedback.length,3);assert(!JSON.stringify(released.feedback).includes('respondent'));
 const formRequest=own.requests.find(r=>r.type==='self');
 await hr.call(`feedback_form&id=${formRequest.id}`,null,404);
 await quinn.call(`feedback_form&id=${formRequest.id}`,null,404);
