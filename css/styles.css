@@ -1628,3 +1628,27 @@ textarea:focus-visible {
   outline: 3px solid rgba(59, 130, 246, 0.35);
   outline-offset: 2px;
 }
+
+/* HR and administration dashboards */
+.org-filters {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+#hrSync.error,
+#adminSync.error {
+  color: #b42318;
+  font-weight: 600;
+}
+.checklist .check-row {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+.checklist .check-row:last-child {
+  border-bottom: 0;
+}
+.table .btn.small + .btn.small {
+  margin-left: 6px;
+}

@@ -115,6 +115,7 @@ FROM
 WHERE
   permission_code IN (
     'password.change',
+    'employee.dashboard',
     'manager.dashboard',
     'manager.reviews',
     'manager.goals',
@@ -145,7 +146,9 @@ WHERE
   permission_code IN (
     'password.change',
     'admin.dashboard',
-    'hr.reports'
+    'hr.reports',
+    'manager.dashboard',
+    'manager.reviews'
   );
 
 
@@ -373,6 +376,8 @@ CREATE TABLE peer_nominations (
   nominated_by INT NOT NULL,
   decided_by INT,
   decision_reason TEXT NULL,
+  suggested_peer_id INT NULL,
+  suggestion_reason TEXT NULL,
   decided_at DATETIME NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -380,6 +385,7 @@ CREATE TABLE peer_nominations (
   CONSTRAINT fk_pn_peer FOREIGN KEY (peer_id) REFERENCES users (id),
   CONSTRAINT fk_pn_nominator FOREIGN KEY (nominated_by) REFERENCES users (id),
   CONSTRAINT fk_pn_decider FOREIGN KEY (decided_by) REFERENCES users (id),
+  CONSTRAINT fk_pn_suggested_peer FOREIGN KEY (suggested_peer_id) REFERENCES users (id),
   UNIQUE KEY uq_part_peer (participant_id, peer_id),
   KEY idx_peer_nomination_status (status, created_at)
 );
@@ -699,6 +705,16 @@ INSERT IGNORE INTO role_permissions(role_code,permission_id)
  WHERE (r.role_code IN ('hr_partner','hr_coordinator') AND p.permission_code IN
    ('password.change','employee.dashboard','hr.dashboard','org.structure.view'))
  OR (r.role_code='hr_partner' AND p.permission_code IN ('hr.pips','hr.reports','org.structure.view_all'));
+
+-- Permissions required by the HR case queue and administrator audit screens.
+-- Keep this in the fresh-install schema as well as migration 005.
+INSERT IGNORE INTO permissions(permission_code,description) VALUES
+ ('hr.cases','Resolve escalated peer-nomination decisions'),
+ ('admin.audit','Read the audit log and sign-in security records');
+INSERT IGNORE INTO role_permissions(role_code,permission_id)
+ SELECT r.role_code,p.id FROM roles r CROSS JOIN permissions p
+ WHERE (p.permission_code='hr.cases' AND r.role_code IN ('hr','hr_partner','admin'))
+    OR (p.permission_code='admin.audit' AND r.role_code='admin');
 
 -- Only explicitly registered demo users belong to the resettable fixture.
 CREATE TABLE demo_users (

@@ -3,54 +3,293 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>System Administrator Dashboard</title>
+    <title>System Administrator Dashboard | Performance &amp; Development Tracker</title>
     <!-- Shared page styles -->
     <link rel="stylesheet" href="css/styles.css" />
   </head>
-  <body class="placeholder-dashboard">
-    <!-- Administrator placeholder content -->
-    <main class="shell">
-      <div class="card">
-        <p class="role" data-user-role>System Administrator</p>
-        <h1>System Administrator Dashboard</h1>
-        <p>
-          Signed in as <strong data-user-name></strong> (<span
-            data-user-email
-          ></span
-          >).
-        </p>
-        <p class="muted">
-          Access to this area is checked against your database role and
-          permissions. Unauthorized users are redirected automatically.
-        </p>
-        <div class="grid">
-          <div class="item" data-permission="admin.dashboard">
-            <strong>Dashboard access</strong>
-            <p class="muted">
-              Your system administrator dashboard permission is active.
-            </p>
-          </div>
-          <div class="item" data-permission="admin.users">
-            <strong>Admin Users</strong>
-            <p class="muted">
-              This permission is granted to your role in the database.
-            </p>
-          </div>
-          <div class="item" data-permission="admin.roles">
-            <strong>Admin Roles</strong>
-            <p class="muted">
-              This permission is granted to your role in the database.
-            </p>
-          </div>
-          <div class="item" data-permission="org.structure.view">
-            <strong>Organization hierarchy</strong>
-            <p class="muted">View reporting paths, departments and teams.</p>
-            <a class="btn" href="org-structure.html">Open hierarchy</a>
-          </div>
+  <body class="manager-dashboard-page">
+    <div class="app">
+      <!-- Administration navigation. Leadership accounts hold only
+           admin.dashboard and hr.reports, so the management sections stay
+           hidden for them. -->
+      <aside class="sidebar">
+        <div class="brand">P&amp;D TRACKER<small>Administration</small></div>
+        <div id="workspaceControls"></div>
+        <div class="nav-title">System</div>
+        <button class="nav-btn active" data-page="overview" data-permission="admin.dashboard">
+          Dashboard
+        </button>
+        <button class="nav-btn" data-page="users" data-permission="admin.users">
+          User accounts
+        </button>
+        <button class="nav-btn" data-page="roles" data-permission="admin.roles">
+          Roles &amp; permissions
+        </button>
+        <button class="nav-btn" data-page="audit" data-permission="admin.audit">
+          Audit log
+        </button>
+        <button class="nav-btn" data-page="security" data-permission="admin.audit">
+          Sign-in security
+        </button>
+        <a class="nav-btn" href="org-structure.html" data-permission="org.structure.view">
+          Organization hierarchy
+        </a>
+        <div class="sidebar-bottom">
+          <button class="nav-btn" id="logoutBtn">Sign out</button>
         </div>
+      </aside>
+
+      <main class="main">
+        <p id="adminSync" role="status" aria-live="polite">Loading system data…</p>
+
+        <header class="topbar">
+          <div class="title">
+            <h1 id="pageTitle">System Administrator Dashboard</h1>
+            <p id="pageSubtitle">
+              Accounts, access levels and the record of who did what.
+            </p>
+          </div>
+          <div class="top-actions">
+            <button class="btn" id="refreshBtn">Refresh</button>
+            <div class="avatar" data-user-initials>U</div>
+          </div>
+        </header>
+
+        <!-- Overview -->
+        <section class="page active" id="page-overview">
+          <div class="grid kpis">
+            <div class="card kpi">
+              <div class="label">Active accounts</div>
+              <div class="value" id="kpiActive">—</div>
+              <div class="sub" id="kpiActiveSub">Of all registered accounts</div>
+            </div>
+            <div class="card kpi">
+              <div class="label">Administrators</div>
+              <div class="value" id="kpiAdmins">—</div>
+              <div class="sub">Accounts that can manage users</div>
+            </div>
+            <div class="card kpi">
+              <div class="label">Failed sign-ins (24h)</div>
+              <div class="value" id="kpiFailed">—</div>
+              <div class="sub" id="kpiFailedSub">Successful attempts alongside</div>
+            </div>
+            <div class="card kpi">
+              <div class="label">Audit events (7 days)</div>
+              <div class="value" id="kpiAudit">—</div>
+              <div class="sub" id="kpiAuditSub">Including permission denials</div>
+            </div>
+          </div>
+
+          <div class="grid two">
+            <div class="card">
+              <div class="section-head">
+                <div>
+                  <h2>Access levels in use</h2>
+                  <p>Active accounts assigned to each role.</p>
+                </div>
+                <button class="btn small" data-page-jump="roles" data-permission="admin.roles">
+                  Manage roles
+                </button>
+              </div>
+              <div id="overviewRoles" class="metric-list"></div>
+            </div>
+
+            <div class="card" data-permission="admin.audit">
+              <div class="section-head">
+                <div>
+                  <h2>Recent activity</h2>
+                  <p>The latest entries written to the audit log.</p>
+                </div>
+                <button class="btn small" data-page-jump="audit">Full log</button>
+              </div>
+              <div class="table-wrap">
+                <table class="table responsive-table">
+                  <thead>
+                    <tr>
+                      <th>When</th>
+                      <th>Who</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="overviewAudit"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>Data checks</h2>
+                <p>Conditions worth resolving before a demonstration or handover.</p>
+              </div>
+            </div>
+            <div id="overviewChecks" class="metric-list"></div>
+          </div>
+        </section>
+
+        <!-- User accounts -->
+        <section class="page" id="page-users">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>User accounts</h2>
+                <p>
+                  Accounts are deactivated rather than deleted so review, plan and
+                  audit history stays intact.
+                </p>
+              </div>
+              <div class="toolbar">
+                <button class="btn primary" id="newUserBtn">+ New account</button
+                ><button class="btn small" id="exportUsersBtn">Export CSV</button>
+              </div>
+            </div>
+            <div class="org-filters">
+              <input id="userSearch" type="search" placeholder="Search name, email or code" aria-label="Search accounts" />
+              <select id="userRole" aria-label="Filter by access level">
+                <option value="">All access levels</option>
+              </select>
+              <select id="userStatus" aria-label="Filter by account status">
+                <option value="">All accounts</option>
+                <option value="active">Active only</option>
+                <option value="inactive">Inactive only</option>
+              </select>
+            </div>
+            <p class="muted" id="userCount"></p>
+            <div class="table-wrap">
+              <table class="table responsive-table">
+                <thead>
+                  <tr>
+                    <th>Account</th>
+                    <th>Access level</th>
+                    <th>Department / team</th>
+                    <th>Manager</th>
+                    <th>Last sign-in</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="usersTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Roles and permissions -->
+        <section class="page" id="page-roles">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>Roles &amp; permissions</h2>
+                <p>
+                  A role is a reusable permission set, not a job title. You cannot
+                  remove your own administrative access or leave the system without
+                  an administrator.
+                </p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="table responsive-table">
+                <thead>
+                  <tr>
+                    <th>Role</th>
+                    <th>Destination</th>
+                    <th>Accounts</th>
+                    <th>Permissions</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="rolesTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Audit log -->
+        <section class="page" id="page-audit">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>Audit log</h2>
+                <p>Every sensitive read and write recorded by the application.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn small" id="exportAuditBtn">Export CSV</button>
+              </div>
+            </div>
+            <div class="org-filters">
+              <input id="auditSearch" type="search" placeholder="Search action, detail or person" aria-label="Search the audit log" />
+              <input id="auditFrom" type="date" aria-label="From date" />
+              <input id="auditTo" type="date" aria-label="To date" />
+            </div>
+            <p class="muted" id="auditCount"></p>
+            <div class="table-wrap">
+              <table class="table responsive-table">
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Who</th>
+                    <th>Action</th>
+                    <th>Entity</th>
+                    <th>Detail</th>
+                    <th>IP</th>
+                  </tr>
+                </thead>
+                <tbody id="auditTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Sign-in security -->
+        <section class="page" id="page-security">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2>Sign-in security</h2>
+                <p>
+                  Attempts from the last seven days, grouped per address. Repeated
+                  failures are throttled by the sign-in endpoint.
+                </p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="table responsive-table">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Failures</th>
+                    <th>Successes</th>
+                    <th>Last attempt</th>
+                    <th>Last failed IP</th>
+                    <th>Account</th>
+                  </tr>
+                </thead>
+                <tbody id="securityTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Shared dialog and message host -->
+    <div class="modal-backdrop" id="modalBackdrop">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-head">
+          <h3 id="modalTitle">Action</h3>
+          <button class="close" id="modalClose" aria-label="Close dialog">×</button>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-foot" id="modalFoot"></div>
       </div>
-    </main>
-    <!-- Authentication and permission checks -->
-    <script src="Js/auth.js" data-roles="admin,leadership"></script>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <!-- Authentication, shared helpers and administration data functions -->
+    <script src="Js/auth.js" data-workspace="executive"></script>
+    <script src="Js/dashboard-ui.js"></script>
+    <script src="Js/admin-db.js"></script>
   </body>
 </html>

@@ -9,7 +9,11 @@ function available_workspaces(array $user): array
         'employee' => ['employee.dashboard', 'Personal', 'employee-dashboard.html'],
         'manager' => ['manager.dashboard', 'Manager', 'manager-dashboard.html'],
         'hr' => ['hr.dashboard', 'HR', 'hr-dashboard.html'],
-        'executive' => ['admin.dashboard', 'Executive', 'admin-dashboard.html'],
+        'executive' => [
+            'admin.dashboard',
+            ($user['role'] ?? '') === 'leadership' ? 'Executive' : 'Administration',
+            'admin-dashboard.html',
+        ],
     ] as $key => [$permission, $label, $path]) {
         if (in_array($permission, $permissions, true)) $spaces[] = compact('key', 'label', 'path');
     }
@@ -77,8 +81,15 @@ function workspace_personal(int $viewer): array
         FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id WHERE rp.employee_id=? ORDER BY rc.period_end DESC,rp.id DESC', [$viewer]);
     foreach ($reviews as &$review) {
         $review['feedback'] = [];
+        $review['peerAssigned'] = (int)(workspace_rows("SELECT COUNT(*) n FROM feedback_requests WHERE participant_id=? AND type='peer'", [$review['id']])[0]['n'] ?? 0);
+        $review['peerResponses'] = (int)(workspace_rows("SELECT COUNT(*) n FROM feedback_requests WHERE participant_id=? AND type='peer' AND status='submitted'", [$review['id']])[0]['n'] ?? 0);
+        $review['peerPendingNominations'] = (int)(workspace_rows("SELECT COUNT(*) n FROM peer_nominations WHERE participant_id=? AND status='pending'", [$review['id']])[0]['n'] ?? 0);
+        $review['peerRejectedNominations'] = (int)(workspace_rows("SELECT COUNT(*) n FROM peer_nominations pn LEFT JOIN peer_nomination_escalations pne ON pne.nomination_id=pn.id WHERE pn.participant_id=? AND pn.status='rejected' AND COALESCE(pne.status,'')<>'resolved_overturned'", [$review['id']])[0]['n'] ?? 0);
+        $review['peerNominationActive'] = $review['peerAssigned'] + $review['peerPendingNominations'];
+        $review['peerNominationShortfall'] = max(0, (int)$review['min_peers'] - $review['peerNominationActive']);
+        $review['peerApprovalShortfall'] = max(0, (int)$review['min_peers'] - $review['peerAssigned']);
         if ($review['status'] !== 'released') continue;
-        $count = workspace_rows("SELECT COUNT(*) n FROM feedback_requests WHERE participant_id=? AND type='peer' AND status='submitted'", [$review['id']])[0]['n'];
+        $count = $review['peerResponses'];
         if ((int) $count >= (int) $review['min_peers']) {
             $review['feedback'] = workspace_rows("SELECT competency,avg_score,responses FROM v_360_summary WHERE participant_id=? AND type='peer' ORDER BY competency", [$review['id']]);
         }
@@ -94,15 +105,25 @@ function workspace_personal(int $viewer): array
 
     // Employees see only nominations for their own review participants. Manager
     // decisions and HR escalation state are visible, but no private peer response is exposed.
-    $nominations = workspace_rows("SELECT pn.id,pn.participant_id participantId,rc.name cycle,peer.full_name peer,peer.job_title peerJobTitle,
+    $nominations = workspace_rows("SELECT pn.id,pn.participant_id participantId,rc.name cycle,rc.status cycleStatus,rc.peer_deadline peerDeadline,
+        peer.full_name peer,peer.job_title peerJobTitle,
+        suggested.id suggestedPeerId,suggested.full_name suggestedPeer,suggested.job_title suggestedPeerJobTitle,
         pn.shared_work sharedWork,pn.collaboration_details collaborationDetails,pn.reviewer_justification reviewerJustification,
-        pn.direct_knowledge_confirmed directKnowledgeConfirmed,pn.status,pn.decision_reason decisionReason,pn.decided_at decidedAt,manager.full_name manager,
+        pn.direct_knowledge_confirmed directKnowledgeConfirmed,pn.status,pn.decision_reason decisionReason,pn.suggestion_reason suggestionReason,pn.decided_at decidedAt,manager.full_name manager,
         pne.status escalationStatus,pne.escalation_reason escalationReason,pne.escalated_at escalatedAt
         FROM peer_nominations pn JOIN review_participants rp ON rp.id=pn.participant_id
         JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users peer ON peer.id=pn.peer_id
         JOIN users manager ON manager.id=rp.manager_id
+        LEFT JOIN users suggested ON suggested.id=pn.suggested_peer_id
         LEFT JOIN peer_nomination_escalations pne ON pne.nomination_id=pn.id
         WHERE rp.employee_id=? ORDER BY pn.created_at DESC,pn.id DESC", [$viewer]);
+    foreach ($nominations as &$nomination) {
+        $nomination['canEscalate'] = $nomination['status'] === 'rejected'
+            && !$nomination['escalationStatus']
+            && in_array($nomination['cycleStatus'], ['open','peer_review'], true)
+            && (!$nomination['peerDeadline'] || $nomination['peerDeadline'] >= date('Y-m-d'));
+    }
+    unset($nomination);
 
     // An eligible reviewer is active, has Personal access, is not the employee or
     // their assigned manager, and is not already nominated or assigned in this cycle.
@@ -138,7 +159,7 @@ function workspace_personal(int $viewer): array
 function personal_feedback_open(array $request): bool
 {
     return $request['status'] === 'pending'
-        && in_array($request['cycle_status'], $request['type'] === 'self' ? ['open'] : ['open','peer_review'], true)
+        && in_array($request['cycle_status'], $request['type'] === 'self' ? ['open'] : ['peer_review'], true)
         && !in_array($request['participant_status'], ['manager_submitted','released'], true)
         && (!$request['due'] || $request['due'] >= date('Y-m-d'));
 }
@@ -275,13 +296,17 @@ function workspace_api(string $action): never
         $reason = trim((string)($in['reason'] ?? ''));
         if (strlen($reason)<30 || strlen($reason)>2000) json_response(['ok'=>false,'error'=>'Explain why HR should review this decision using 30 to 2,000 characters'],422);
         $pdo->beginTransaction();
-        $nomination = workspace_rows("SELECT pn.id,pn.status,rc.status cycle_status
+        $nomination = workspace_rows("SELECT pn.id,pn.status,rc.status cycle_status,rc.peer_deadline
             FROM peer_nominations pn JOIN review_participants rp ON rp.id=pn.participant_id
             JOIN review_cycles rc ON rc.id=rp.cycle_id
             WHERE pn.id=? AND rp.employee_id=? FOR UPDATE",[$id,$viewer])[0] ?? null;
         if (!$nomination) { $pdo->rollBack(); json_response(['ok'=>false,'error'=>'Nomination not found'],404); }
         if ($nomination['status']!=='rejected') { $pdo->rollBack(); json_response(['ok'=>false,'error'=>'Only a rejected nomination can be forwarded to HR'],409); }
-        if (in_array($nomination['cycle_status'],['released','closed'],true)) { $pdo->rollBack(); json_response(['ok'=>false,'error'=>'This review cycle is already closed'],409); }
+        if (!in_array($nomination['cycle_status'],['open','peer_review'],true)
+            || ($nomination['peer_deadline'] && $nomination['peer_deadline'] < date('Y-m-d'))) {
+            $pdo->rollBack();
+            json_response(['ok'=>false,'error'=>'The peer-review window is closed, so this decision can no longer be forwarded to HR'],409);
+        }
         if (workspace_rows('SELECT id FROM peer_nomination_escalations WHERE nomination_id=?',[$id])) {
             $pdo->rollBack(); json_response(['ok'=>false,'error'=>'This nomination has already been forwarded to HR'],409);
         }

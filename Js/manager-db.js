@@ -52,10 +52,43 @@
       employee.reviewStatusCode,
     );
   }
+  function selfReviewSubmitted(employee) {
+    return employee?.selfReview?.status === "submitted";
+  }
+  function selfReviewMarkup(employee) {
+    if (!selfReviewSubmitted(employee)) {
+      return '<div class="notice">The participant has not submitted their self review yet.</div>';
+    }
+    const ratings = employee.selfReview.ratings || [];
+    if (!ratings.length) {
+      return '<div class="notice">The self review is submitted, but no competency ratings were found.</div>';
+    }
+    return `<div class="metric-list">${ratings
+      .map(
+        (rating) => `<div class="card compact-card">
+          <div class="section-head">
+            <strong>${esc(rating.name)}</strong>
+            <span class="status green">${Number(rating.score)}/5</span>
+          </div>
+          <p class="muted">${rating.comment ? esc(rating.comment) : "No comment provided."}</p>
+        </div>`,
+      )
+      .join("")}</div>`;
+  }
   function reviewReady(employee) {
-    return ["self_submitted", "peers_complete", "manager_submitted"].includes(
-      employee.reviewStatusCode,
-    );
+    return employee.cycleStatus === "manager_review" &&
+      ["self_submitted", "peers_complete", "manager_submitted"].includes(
+        employee.reviewStatusCode,
+      );
+  }
+  function reviewWaitLabel(employee) {
+    if (!["self_submitted", "peers_complete", "manager_submitted"].includes(employee.reviewStatusCode)) {
+      return "Waiting for self-review";
+    }
+    if (employee.cycleStatus !== "manager_review") {
+      return "Waiting for manager stage";
+    }
+    return "Review";
   }
   function csvCell(value) {
     let text = String(value ?? "");
@@ -382,24 +415,24 @@
     const filter = $("#reviewFilter")?.value || "all";
     let rows = data.employees.filter((employee) => employee.participantId);
     if (filter === "pending")
-      rows = rows.filter((e) => e.review !== "Manager submitted");
+      rows = rows.filter((e) => !reviewComplete(e));
     if (filter === "submitted")
-      rows = rows.filter((e) => e.review === "Manager submitted");
+      rows = rows.filter((e) => reviewComplete(e));
     $("#reviewTable").innerHTML =
       rows
         .map((employee) => {
           const feedback = data.feedback[employee.id];
           const feedbackLabel = feedback?.available
             ? `${feedback.responses} submitted`
-            : `${feedback?.responses || 0}/${feedback?.required || 3} required`;
+            : `${feedback?.responses || 0} responses · aggregate at ${feedback?.required || 3}`;
           const managerStatus = reviewComplete(employee)
             ? "Complete"
             : "Pending";
           const buttonLabel = reviewComplete(employee)
-            ? "View / Edit"
+            ? (employee.reviewStatusCode === "released" ? "Released" : "View / Edit")
             : reviewReady(employee)
               ? "Review"
-              : "Waiting for self-review";
+              : reviewWaitLabel(employee);
           const reviewButton = can("manager.reviews")
             ? `<button
                 class="btn small primary"
@@ -409,6 +442,9 @@
                 ${buttonLabel}
               </button>`
             : '<span class="muted">No permission</span>';
+          const selfReviewButton = selfReviewSubmitted(employee)
+            ? `<button class="btn small" onclick="openSelfReview(${employee.id})">View self review</button>`
+            : '<span class="muted">Self review pending</span>';
 
           return `<tr>
             <td>${esc(employee.name)}<div class="muted">Review owner: ${esc(employee.reviewManager || data.manager.full_name || "—")}</div></td>
@@ -424,7 +460,7 @@
                 ${managerStatus}
               </span>
             </td>
-            <td>${reviewButton}</td>
+            <td><div class="action-group">${selfReviewButton}${reviewButton}</div></td>
           </tr>`;
         })
         .join("") ||
@@ -762,17 +798,37 @@
     applyDynamicMeasurements();
   }
 
+  // Direct managers can inspect a submitted self review even before HR opens
+  // the manager-review stage. The backend only supplies this data for the
+  // participant whose manager_id matches the signed-in manager.
+  function openSelfReview(id) {
+    const e = employeeById(id);
+    if (!e || !e.participantId) {
+      return toast("This team member has no review assigned to you.");
+    }
+    if (!selfReviewSubmitted(e)) {
+      return toast("The participant has not submitted their self review yet.");
+    }
+    openModal(
+      "Self Review — " + e.name,
+      `<p class="muted">${esc(e.cycle)} · submitted by ${esc(e.name)}</p>${selfReviewMarkup(e)}`,
+      '<button class="btn" onclick="closeModal()">Close</button>',
+    );
+  }
+
   // Open the manager-review form for one employee.
   function openReview(id) {
     const e = employeeById(id);
     if (!e || !e.participantId)
       return toast(
-        "This employee has no review participant for the current cycle.",
+        "This team member has no review participant for the current cycle.",
       );
-    if (!reviewReady(e))
-      return toast(
-        "The employee self-review must be submitted before the manager review.",
-      );
+    if (!reviewReady(e)) {
+      if (!["self_submitted", "peers_complete", "manager_submitted"].includes(e.reviewStatusCode)) {
+        return toast("The participant self-review must be submitted before the manager review.");
+      }
+      return toast("HR has not opened the manager-review stage for this cycle yet.");
+    }
     const existing = e.rating || 3;
     const savedRatings = Object.fromEntries(
       (data.managerRatings[e.id] || []).map((x) => [x.competencyId, x]),
@@ -810,11 +866,13 @@
       .join("");
     const peerMessage = peer?.available
       ? `${peer.responses} peer responses are available.`
-      : `Peer results are hidden until ${peer?.required || 3} responses are submitted.`;
+      : `${peer?.responses || 0} peer response${Number(peer?.responses || 0)===1?' has':'s have'} been submitted. Anonymous peer results are hidden until ${peer?.required || 3} responses are received, but this manager review can still be completed.`;
 
     openModal(
       "Manager Review — " + e.name,
-      `<div class="notice modal-notice">
+      `<h3>Participant self review</h3>
+      ${selfReviewMarkup(e)}
+      <div class="notice modal-notice spaced-top">
         Peer feedback is aggregated and anonymous. ${peerMessage}
       </div>
       <div class="form-grid">
@@ -873,7 +931,10 @@
   function openPeerNomination(id) {
     const nomination = data.peerNominations.find((item) => Number(item.id) === Number(id));
     if (!nomination) return toast("Peer nomination not found.");
-    const decision = nomination.status === "pending"
+    const suggestionOptions = (nomination.suggestionOptions || [])
+      .map((peer) => `<option value="${peer.id}">${esc(peer.name)} — ${esc(peer.jobTitle || "Job title not set")}</option>`)
+      .join("");
+    const decision = nomination.status === "pending" && nomination.canDecide
       ? `<div class="form-grid section-spacing">
           <div class="field">
             <label for="peerDecisionStatus">Decision</label>
@@ -887,8 +948,22 @@
             <textarea id="peerDecisionReason" maxlength="1000" placeholder="Required when rejecting. Explain the conflict, lack of direct knowledge, or other reason."></textarea>
             <small class="muted">A rejection requires at least 15 characters. Approval notes are optional.</small>
           </div>
+          <div class="field" data-replacement-field hidden>
+            <label for="peerSuggestedReplacement">Suggested replacement (optional)</label>
+            <select id="peerSuggestedReplacement">
+              <option value="">No replacement suggestion</option>
+              ${suggestionOptions}
+            </select>
+            <small class="muted">Used only when rejecting. The participant still chooses whether to nominate this person.</small>
+          </div>
+          <div class="field full" data-replacement-field hidden>
+            <label for="peerSuggestionReason">Why this replacement is suitable</label>
+            <textarea id="peerSuggestionReason" maxlength="1000" placeholder="Required if you suggest a replacement. Explain why this person is likely to have relevant first-hand knowledge."></textarea>
+          </div>
         </div>`
-      : `<div class="notice section-spacing"><strong>Manager decision</strong><p>${esc(nomination.decisionReason || "No additional decision note was recorded.")}</p></div>`;
+      : nomination.status === "pending"
+        ? `<div class="notice section-spacing"><strong>Peer-review window closed</strong><p>This nomination is now read-only because the cycle has moved past peer review or its deadline has passed.</p></div>`
+        : `<div class="notice section-spacing"><strong>Manager decision</strong><p>${esc(nomination.decisionReason || "No additional decision note was recorded.")}</p>${nomination.suggestedPeer?`<p><strong>Suggested replacement:</strong> ${esc(nomination.suggestedPeer)}${nomination.suggestedPeerJobTitle?` · ${esc(nomination.suggestedPeerJobTitle)}`:""}</p><p>${esc(nomination.suggestionReason || "")}</p>`:""}</div>`;
     const escalation = nomination.escalationStatus
       ? `<div class="notice warn section-spacing"><strong>Forwarded to HR</strong><p>${esc(nomination.escalationReason || "")}</p><p class="muted">Status: ${esc(titleStatus(nomination.escalationStatus))}</p></div>`
       : "";
@@ -900,25 +975,40 @@
         <div class="full"><span class="muted">Shared project or deliverable</span><strong>${esc(nomination.sharedWork)}</strong></div>
         <div class="full"><span class="muted">Work completed together</span><p>${esc(nomination.collaborationDetails)}</p></div>
         <div class="full"><span class="muted">Why this peer can provide an informed review</span><p>${esc(nomination.reviewerJustification)}</p></div>
-        <div class="full"><span class="status ${nomination.directKnowledgeConfirmed ? "green" : "amber"}">${nomination.directKnowledgeConfirmed ? "Employee confirmed first-hand observation" : "First-hand observation not confirmed"}</span></div>
+        <div class="full"><span class="status ${nomination.directKnowledgeConfirmed ? "green" : "amber"}">${nomination.directKnowledgeConfirmed ? "Participant confirmed first-hand observation" : "First-hand observation not confirmed"}</span></div>
       </div>${decision}${escalation}`,
-      nomination.status === "pending"
+      nomination.status === "pending" && nomination.canDecide
         ? `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="decidePeer(${nomination.id})">Save decision</button>`
         : '<button class="btn" onclick="closeModal()">Close</button>',
     );
+    const decisionSelect = $("#peerDecisionStatus");
+    if (decisionSelect) {
+      const syncReplacementFields = () => {
+        document.querySelectorAll("[data-replacement-field]").forEach((field) => {
+          field.hidden = decisionSelect.value !== "rejected";
+        });
+      };
+      decisionSelect.addEventListener("change", syncReplacementFields);
+      syncReplacementFields();
+    }
   }
 
   // Approve or reject a proposed peer reviewer and persist the manager reason.
   async function decidePeer(id) {
     const status = $("#peerDecisionStatus")?.value || "";
     const reason = $("#peerDecisionReason")?.value.trim() || "";
+    const suggestedPeerId = status === "rejected" ? Number($("#peerSuggestedReplacement")?.value || 0) : 0;
+    const suggestionReason = status === "rejected" ? ($("#peerSuggestionReason")?.value.trim() || "") : "";
     if (status === "rejected" && reason.length < 15) {
       return toast("Explain the rejection using at least 15 characters.");
+    }
+    if (suggestedPeerId && suggestionReason.length < 15) {
+      return toast("Explain the replacement suggestion using at least 15 characters.");
     }
     try {
       await request("decide_peer", {
         method: "POST",
-        body: JSON.stringify({ id, status, reason }),
+        body: JSON.stringify({ id, status, reason, suggestedPeerId, suggestionReason }),
       });
       closeModal();
       await refresh();
@@ -1813,6 +1903,7 @@
   // Expose DB-backed functions used by generated action buttons.
   Object.assign(window, {
     openEmployee,
+    openSelfReview,
     openReview,
     submitReview,
     decidePeer,
@@ -1852,6 +1943,7 @@
   globalThis.renderTeam = renderTeam;
   globalThis.renderReviews = renderReviews;
   globalThis.openEmployee = openEmployee;
+  globalThis.openSelfReview = openSelfReview;
   globalThis.openReview = openReview;
   globalThis.submitReview = submitReview;
   globalThis.openPeerNomination = openPeerNomination;
