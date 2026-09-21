@@ -37,6 +37,7 @@ jobs:
         run: |
           php scripts/demo.php seed
           php tests/demo_reset.php
+          php tests/review_participant_backfill.php
           php tests/work_progress.php
           php tests/notifications.php
         env:

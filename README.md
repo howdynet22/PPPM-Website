@@ -6,6 +6,8 @@ Apply `migrations/010_system_logic_audit.sql` after migration 009 when upgrading
 
 Apply `migrations/011_notifications.sql` after migration 010. It adds persistent, user-owned notification inboxes, deduplicated reminder history, and review-cycle transition history. The Personal and Manager workspaces reload these rows from the database on focus/visibility changes, after writes, and on their existing refresh interval. To generate due/overdue reminders from a trusted scheduler, run `php scripts/run-reminders.php`; the script is CLI-only and safe to run more than once per day.
 
+Apply `migrations/012_review_participant_backfill.sql` after migration 011 on upgraded installations. It enrols any missing Admin, HR, Manager, or other higher-access organizational employees into an existing open cycle when they are explicitly review eligible, have Personal workspace access, and have an active manager. Explicitly excluded accounts remain excluded.
+
 Peer forms remain actionable through manager review until that participant's manager review is submitted. Manager submission and release require real submitted peer responses or an audited HR waiver; outstanding forms receive terminal states. The update also adds participant exceptions, active-record reassignment history, precise HR permissions, employee PDP agreement, HR-governed PIP transitions and manager-review optimistic concurrency.
 
 Run `node tests/system_logic_audit.mjs` for the 20 structural workflow regression contracts. On an isolated migrated database, also run `tests/system_logic_audit_checks.sql` and the existing HTTP/SQL suites. The migration intentionally removes the unused `feedback_summary` table.
