@@ -38,6 +38,7 @@ jobs:
           php scripts/demo.php seed
           php tests/demo_reset.php
           php tests/work_progress.php
+          php tests/notifications.php
         env:
           PPPM_DB_HOST: 127.0.0.1
           PPPM_DB_NAME: pppm_test

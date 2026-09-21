@@ -457,6 +457,25 @@ function hr_cycle_advance(array $in, int $actorId): array
             $cycleId,
             $cycle["status"] . " -> " . $next,
         );
+        record_cycle_transition($cycleId,(string)$cycle['status'],$next,$actorId);
+
+        if($next==='manager_review'){
+            $stmt=$pdo->prepare("SELECT DISTINCT rp.action_manager_id FROM review_participants rp WHERE rp.cycle_id=? AND NOT EXISTS(SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=rp.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn'))");
+            $stmt->execute([$cycleId]);
+            create_bulk_notifications($stmt->fetchAll(PDO::FETCH_COLUMN),'manager_reviews_open','Manager reviews are ready',
+                'Manager reviews for “'.$cycle['name'].'” are now ready.','review_cycle',$cycleId,'manager-dashboard.html',"manager-review-stage:$cycleId");
+        }
+        if($next==='released'){
+            $stmt=$pdo->prepare("SELECT rp.employee_id FROM review_participants rp WHERE rp.cycle_id=? AND rp.status='released'");
+            $stmt->execute([$cycleId]);
+            create_bulk_notifications($stmt->fetchAll(PDO::FETCH_COLUMN),'review_results_released','Review results released',
+                'Your results for “'.$cycle['name'].'” are available.','review_cycle',$cycleId,'employee-dashboard.html#feedback',"cycle-released:$cycleId");
+        }
+        // HR completion is deliberately sent at close, not at release.
+        if($next==='closed'){
+            create_bulk_notifications(notification_recipients_for_permission('hr.cycles.manage'),'review_cycle_closed','Review cycle closed',
+                'The review cycle “'.$cycle['name'].'” is complete and closed.','review_cycle',$cycleId,'hr-dashboard.html',"cycle-closed:$cycleId");
+        }
 
         $pdo->commit();
         return [
@@ -782,8 +801,8 @@ function hr_api(string $action): never
             try {
                 $stmt = $pdo->prepare(
                     "SELECT e.id,e.status,e.nomination_id,n.status AS nomination_status,
-                            n.participant_id,n.peer_id,rp.status AS participant_status,
-                            rc.status AS cycle_status,rc.peer_deadline
+                            n.participant_id,n.peer_id,rp.employee_id,rp.status AS participant_status,
+                            rc.status AS cycle_status,rc.peer_deadline,rc.name cycle_name
                      FROM peer_nomination_escalations e
                      JOIN peer_nominations n ON n.id=e.nomination_id
                      JOIN review_participants rp ON rp.id=n.participant_id
@@ -833,6 +852,9 @@ function hr_api(string $action): never
                         "INSERT INTO feedback_requests(participant_id,respondent_id,type,status,response_deadline)
                          VALUES(?,?,'peer','pending',?) ON DUPLICATE KEY UPDATE response_deadline=VALUES(response_deadline),status=IF(status='submitted','submitted','pending')",
                     )->execute([(int) $case["participant_id"], (int) $case["peer_id"],$deadline]);
+                    create_notification((int)$case['peer_id'],'peer_feedback_assigned','Peer feedback assigned',
+                        'HR approved your peer-feedback assignment for “'.$case['cycle_name'].'”.','peer_nomination',(int)$case['nomination_id'],
+                        'employee-dashboard.html#feedback',"peer-assigned:{$case['nomination_id']}");
                 }
                 $pdo->prepare(
                     "UPDATE peer_nomination_escalations SET status=?,resolved_by=?,resolution_note=?,
@@ -845,6 +867,9 @@ function hr_api(string $action): never
                     $id,
                     "Nomination " . (int) $case["nomination_id"] . ": " . substr($note, 0, 150),
                 );
+                create_notification((int)$case['employee_id'],'peer_escalation_resolved','Peer nomination case resolved',
+                    'HR has '.($outcome==='resolved_overturned'?'overturned':'upheld').' the manager decision for your peer nomination.',
+                    'peer_nomination_escalation',$id,'employee-dashboard.html#feedback',"peer-escalation-resolved:$id");
                 $pdo->commit();
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {

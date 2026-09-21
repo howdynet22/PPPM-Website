@@ -664,65 +664,9 @@ try {
                 $s->fetchAll(),
             );
 
-            $notifications = [];
-            foreach ($employees as $e) {
-                if (
-                    $e["participantId"] &&
-                    $e["cycleStatus"] === "manager_review" &&
-                    in_array($e["reviewStatusCode"], ["self_submitted", "peers_complete"], true)
-                ) {
-                    $notifications[] = [
-                        "id" => "review-" . $e["id"],
-                        "text" =>
-                            "Manager review is pending for " . $e["name"] . ".",
-                        "time" => "Current review cycle",
-                        "unread" => true,
-                    ];
-                }
-            }
-            foreach ($peerNominations as $n) {
-                if ($n["canDecide"]) {
-                    $notifications[] = [
-                        "id" => "peer-" . $n["id"],
-                        "text" =>
-                            "A peer nomination requires approval for " .
-                            $n["employee"] .
-                            ".",
-                        "time" => "Current review cycle",
-                        "unread" => true,
-                    ];
-                }
-            }
-            foreach ($pdps as $p) {
-                if (
-                    $p["due"] <= date("Y-m-d", strtotime("+14 days")) &&
-                    $p["status"] !== "Completed"
-                ) {
-                    $notifications[] = [
-                        "id" => "pdp-" . $p["id"],
-                        "text" =>
-                            "PDP action for " .
-                            $p["employee"] .
-                            " is due soon.",
-                        "time" => $p["due"],
-                        "unread" => true,
-                    ];
-                }
-            }
-            $s = $pdo->prepare(
-                "SELECT notification_key FROM notification_reads WHERE user_id=?",
-            );
-            $s->execute([$mid]);
-            $readKeys = array_flip(
-                array_column($s->fetchAll(), "notification_key"),
-            );
-            foreach ($notifications as &$notification) {
-                $notification["unread"] = !isset(
-                    $readKeys[$notification["id"]],
-                );
-            }
-            unset($notification);
-            $notifications=array_values(array_filter($notifications,fn($n)=>has_permission($mid,str_starts_with($n["id"],"pdp-")?"manager.goals":"manager.reviews")));
+            // Notifications are real inbox records rather than recomputed strings,
+            // so read state and event timing remain stable across refreshes.
+            $notifications=get_notifications($mid,false,50);
 
             foreach ($employees as &$row) {
                 if (!has_permission($mid, "manager.reviews")) {
@@ -922,6 +866,9 @@ try {
                 $participantId,
                 "Submitted manager review",
             );
+            create_notification((int)$participant['employee_id'],'manager_review_submitted','Manager review submitted',
+                'Your manager has completed their review. Results remain hidden until HR releases the cycle.',
+                'review_participant',$participantId,'employee-dashboard.html#feedback',"manager-review-submitted:$participantId");
             $pdo->commit();
             json_response(["ok" => true]);
 
@@ -962,7 +909,7 @@ try {
             $pdo->beginTransaction();
             $stmt = $pdo->prepare(
                 "SELECT pn.id,pn.status,pn.participant_id,pn.peer_id,rp.status participant_status, " .
-                    "rc.status cycle_status,rc.peer_deadline FROM peer_nominations pn " .
+                    "rc.status cycle_status,rc.peer_deadline,rc.name cycle_name,rp.employee_id FROM peer_nominations pn " .
                     "JOIN review_participants rp ON rp.id=pn.participant_id " .
                     "JOIN review_cycles rc ON rc.id=rp.cycle_id " .
                     "WHERE pn.id=? AND rp.action_manager_id=? FOR UPDATE",
@@ -1023,7 +970,16 @@ try {
                         "ON DUPLICATE KEY UPDATE id=id",
                 );
                 $stmt->execute([(int)$nomination["participant_id"], (int)$nomination["peer_id"], $nomination['peer_deadline']]);
+                create_notification((int)$nomination['peer_id'],'peer_feedback_assigned','Peer feedback assigned',
+                    'You have been assigned peer feedback for “'.$nomination['cycle_name'].'”.','peer_nomination',$id,
+                    'employee-dashboard.html#feedback',"peer-assigned:$id");
+            } else {
+                create_notification((int)$nomination['employee_id'],'peer_nomination_rejected','Peer nomination declined',
+                    'Your manager declined a peer nomination. Review the reason and nominate a replacement or escalate while the window is open.',
+                    'peer_nomination',$id,'employee-dashboard.html#feedback',"peer-rejected:$id");
             }
+            $pdo->prepare("UPDATE notifications SET is_read=1,read_at=COALESCE(read_at,NOW()) WHERE user_id=? AND entity_type='peer_nomination' AND entity_id=? AND notification_type='peer_nomination_pending'")
+                ->execute([(int)$manager['id'],$id]);
             audit(
                 (int) $manager["id"],
                 strtoupper("PEER_" . $status),
@@ -1954,8 +1910,13 @@ try {
         case "mark_notifications_read":
             require_method("POST");
             require_csrf();
-            $manager = require_permission("manager.dashboard");
+            $viewer = require_login();
             $in = input();
+            if(filter_var($in['all']??false,FILTER_VALIDATE_BOOLEAN)){
+                $count=mark_all_notifications_read((int)$viewer['id']);
+                audit((int)$viewer['id'],'MARK_NOTIFICATIONS_READ','notification',null,"Marked $count notifications as read");
+                json_response(['ok'=>true,'count'=>$count]);
+            }
             $ids = $in["ids"] ?? [];
             if (!is_array($ids)) {
                 json_response(
@@ -1963,34 +1924,25 @@ try {
                     422,
                 );
             }
-            $ids = array_slice(
-                array_values(
-                    array_unique(
-                        array_filter(
-                            array_map(fn($v) => trim((string) $v), $ids),
-                            fn($v) => preg_match('/^[A-Za-z0-9-]{1,80}$/', $v),
-                        ),
-                    ),
-                ),
-                0,
-                100,
-            );
-            $pdo = db();
-            $stmt = $pdo->prepare(
-                "INSERT INTO notification_reads(user_id,notification_key) VALUES(?,?) ON DUPLICATE " .
-                    "KEY UPDATE read_at=CURRENT_TIMESTAMP",
-            );
-            foreach ($ids as $id) {
-                $stmt->execute([(int) $manager["id"], $id]);
-            }
+            $ids=array_slice(array_values(array_unique(array_filter(array_map('intval',$ids),fn($id)=>$id>0))),0,100);
+            $count=mark_notifications_read((int)$viewer['id'],$ids);
             audit(
-                (int) $manager["id"],
+                (int) $viewer["id"],
                 "MARK_NOTIFICATIONS_READ",
                 "notification",
                 null,
-                "Marked " . count($ids) . " notifications as read",
+                "Marked " . $count . " notifications as read",
             );
-            json_response(["ok" => true, "count" => count($ids)]);
+            json_response(["ok" => true, "count" => $count]);
+
+        case 'get_notifications':
+            require_method('GET');
+            $viewer=require_login();
+            $unread=filter_var($_GET['unread']??false,FILTER_VALIDATE_BOOLEAN);
+            $limit=max(1,min(100,(int)($_GET['limit']??50)));
+            $offset=max(0,(int)($_GET['offset']??0));
+            json_response(['ok'=>true,'notifications'=>get_notifications((int)$viewer['id'],$unread,$limit,$offset),
+                'unreadCount'=>get_unread_notification_count((int)$viewer['id']),'csrfToken'=>csrf_token()]);
 
         // Permission lookup for the signed-in role.
         case "my_permissions":

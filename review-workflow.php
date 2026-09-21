@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__.'/notifications.php';
 
 /** Shared, server-authoritative review-cycle policy. */
 function review_exception_active(int $participantId, string $type): bool
@@ -92,11 +93,15 @@ function review_publish_cycle(int $cycleId, int $actorId): array
         foreach($people as $person){
             $ins->execute([$cycleId,$person['id'],$person['manager_id'],$person['manager_id']]);
             $self->execute([(int)$pdo->lastInsertId(),$person['id'],$cycle['self_deadline']]);
+            create_notification((int)$person['id'],'review_cycle_open','Review cycle opened',
+                'Your self review for “'.$cycle['name'].'” is ready.','review_cycle',$cycleId,
+                'employee-dashboard.html#feedback',"cycle-open:$cycleId");
         }
         $snap=$pdo->prepare("INSERT INTO review_cycle_competencies(cycle_id,competency_id,name,description,display_order) VALUES(?,?,?,?,?)");
         foreach($competencies as $i=>$c) $snap->execute([$cycleId,$c['id'],$c['name'],$c['description'],$i+1]);
         $pdo->prepare("UPDATE review_cycles SET status='open',published_at=NOW() WHERE id=?")->execute([$cycleId]);
         audit($actorId,'PUBLISH_REVIEW_CYCLE','review_cycle',$cycleId,'Published with '.count($people).' participants and '.count($competencies).' competencies');
+        record_cycle_transition($cycleId,'draft','open',$actorId,'Published review cycle');
         $pdo->commit();
         return ['id'=>$cycleId,'status'=>'open','participants'=>count($people),'competencies'=>count($competencies)];
     } catch(Throwable $e){ if($pdo->inTransaction())$pdo->rollBack(); throw $e; }
