@@ -35,7 +35,10 @@ function feedback_request_submit_capability(array $request): array
     if ($participantClosed) {
         return ['allowed'=>false, 'late'=>false, 'reason'=>'The participant review is already finalized.'];
     }
-    $allowedStages = $request['type'] === 'self' ? ['open'] : ['peer_review','manager_review'];
+    // Manager approval creates the peer request, so the assigned reviewer can
+    // act immediately. Keeping it open through manager_review prevents an
+    // organization-wide stage change from stranding an approved reviewer.
+    $allowedStages = $request['type'] === 'self' ? ['open'] : ['open','peer_review','manager_review'];
     if (!in_array($request['cycle_status'], $allowedStages, true)) {
         return ['allowed'=>false, 'late'=>false, 'reason'=>'The cycle is not accepting this feedback type.'];
     }

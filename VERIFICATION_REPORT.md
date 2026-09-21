@@ -26,6 +26,10 @@
   - employee result notice occurs at release;
   - HR close notice is absent at release and present at close;
   - the complete draft-to-closed review workflow and anonymity checks still pass.
+- `tests/employee_workspaces.mjs`
+  - approved peer forms are immediately writable during the open stage;
+  - Employee, Manager, HR, HR Partner, HR Coordinator, and Administrator accounts follow the same peer-review rule when they have Personal workspace permission;
+  - forms remain protected by respondent ownership and 360 anonymity.
 - `.github/workflows/system-logic-audit.yml` runs the notification tests alongside the existing HTTP, SQL, permission, workflow, and Chromium UI regressions.
 
 ## Deployment requirements

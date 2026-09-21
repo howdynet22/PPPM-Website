@@ -8,7 +8,7 @@ const managerHtml=read('manager-dashboard.html'),managerJs=read('Js/manager-db.j
 
 const cases=[
   ['late self recovery',/allowedStages = .*\['open'\]/s.test(workflow)&&/late'.*date/s.test(workflow)],
-  ['peer response remains open in manager review',/\['peer_review','manager_review'\]/.test(workflow)],
+  ['approved peer response opens immediately and remains open through manager review',/\['open','peer_review','manager_review'\]/.test(workflow)],
   ['peer waiver gates manager submission',/waive_peer/.test(api)&&/required peer responses/.test(api)],
   ['late escalation has revised deadline route',/responseDeadline/.test(hr)&&/revised peer-response deadline/.test(hr)],
   ['inactive manager blocks release',/inactiveManagers/.test(workflow)&&/reassign inactive managers/.test(hr)],
