@@ -1,0 +1,704 @@
+diff --git a/.github/workflows/system-logic-audit.yml b/.github/workflows/system-logic-audit.yml
+index bbd0426..f067889 100644
+--- a/.github/workflows/system-logic-audit.yml
++++ b/.github/workflows/system-logic-audit.yml
+@@ -3,7 +3,7 @@ name: System logic audit
+ on:
+   pull_request:
+   push:
+-    branches: [fix/system-logic-audit]
++    branches: [main]
+ 
+ jobs:
+   workflow-regression:
+@@ -50,6 +50,7 @@ jobs:
+           for file in *.php scripts/*.php tests/*.php; do php -l "$file"; done
+           for file in Js/*.js tests/*.mjs; do node --check "$file"; done
+           node tests/system_logic_audit.mjs
++          node tests/railway_persistence_contracts.mjs
+       - name: HTTP workflow tests
+         run: |
+           php -S 127.0.0.1:8080 -t . >/tmp/pppm-server.log 2>&1 &
+diff --git a/.htaccess b/.htaccess
+index a961c1a..2a6dbe2 100644
+--- a/.htaccess
++++ b/.htaccess
+@@ -8,7 +8,7 @@ Options -Indexes
+   Header always set Referrer-Policy "no-referrer"
+   Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+   Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+-  <FilesMatch "\.(?:html|php)$">
++  <FilesMatch "\.(?:html|php|js|css)$">
+     Header always set Cache-Control "no-store"
+   </FilesMatch>
+ </IfModule>
+diff --git a/Js/admin-db.js b/Js/admin-db.js
+index 8a09d73..6594646 100644
+--- a/Js/admin-db.js
++++ b/Js/admin-db.js
+@@ -59,6 +59,7 @@
+   async function load(announce = false) {
+     try {
+       const result = await request("admin_dashboard&" + userFilters());
++      window.applyAuthUser?.(result.user);
+       viewerId = Number(result.user?.id || 0);
+       viewerRole = String(result.user?.role || "");
+       data = {
+@@ -398,7 +399,6 @@
+       } else {
+         toast(result.message || "Account updated.");
+       }
+-      if (result.managerWarning) toast(result.managerWarning);
+     } catch (error) {
+       toast(error.message);
+     }
+diff --git a/Js/auth.js b/Js/auth.js
+index bd4d856..60c40b2 100644
+--- a/Js/auth.js
++++ b/Js/auth.js
+@@ -28,6 +28,10 @@
+     const result = await response
+       .json()
+       .catch(() => ({ ok: false, error: "Invalid server response" }));
++    if (response.status === 401) {
++      window.location.href = "index.html";
++      throw new Error("Your session has expired.");
++    }
+     if (!result.ok) throw new Error(result.error || "Request failed");
+     if (result.csrfToken) window.currentCsrfToken = result.csrfToken;
+     return result;
+@@ -340,6 +344,47 @@
+     if(workspace){try{localStorage.setItem('pppm.workspace.'+user.id,workspace);}catch(_){}}
+   }
+ 
++  function pageAllowedFor(user) {
++    const isOrganizationPage = location.pathname.endsWith('/org-structure.html');
++    if (workspace) {
++      return (user.workspaces || []).some((space) => space.key === workspace);
++    }
++    if (isOrganizationPage) {
++      return (user.permissions || []).includes('org.structure.view');
++    }
++    return !(allowed.length && !allowed.includes(user.role));
++  }
++
++  function applyFreshIdentity(user) {
++    if (!pageAllowedFor(user)) {
++      window.location.href = user.dashboard_path || "index.html";
++      return false;
++    }
++    applyUser(user);
++    addWorkspaceSwitcher(user);
++    window.currentAuthUser = user;
++    window.dispatchEvent(new CustomEvent('pppm:identity-changed', {detail:user}));
++    return true;
++  }
++
++  // Account details and permissions may be changed by an administrator while
++  // this page is open. Re-read /me on focus and periodically so the affected
++  // user sees the committed values without needing to sign out or hard-refresh.
++  let identityRefreshInFlight = false;
++  async function refreshIdentity() {
++    if (identityRefreshInFlight || document.hidden || !window.currentAuthUser) return;
++    identityRefreshInFlight = true;
++    try {
++      const result = await request("me");
++      window.currentCsrfToken = result.csrfToken || window.currentCsrfToken || "";
++      applyFreshIdentity(result.user);
++    } catch (error) {
++      if (!location.pathname.endsWith('/index.html')) showToast(error.message, true);
++    } finally {
++      identityRefreshInFlight = false;
++    }
++  }
++
+   // Verify the session and initialise the page.
+   async function init() {
+     try {
+@@ -347,8 +392,7 @@
+       const user = result.user;
+       window.currentCsrfToken =
+         result.csrfToken || window.currentCsrfToken || "";
+-      const isOrganizationPage=location.pathname.endsWith('/org-structure.html');
+-      if (workspace ? !(user.workspaces || []).some(s=>s.key===workspace) : (isOrganizationPage ? !(user.permissions || []).includes('org.structure.view') : (allowed.length && !allowed.includes(user.role)))) {
++      if (!pageAllowedFor(user)) {
+         window.location.href = user.dashboard_path || "index.html";
+         return;
+       }
+@@ -365,6 +409,11 @@
+         window.currentAuthUser=freshUser;
+       };
+       window.dispatchEvent(new CustomEvent('pppm:authenticated', {detail:user}));
++      window.addEventListener('focus', refreshIdentity);
++      document.addEventListener('visibilitychange', () => {
++        if (!document.hidden) refreshIdentity();
++      });
++      setInterval(refreshIdentity, 15000);
+     } catch (err) {
+       window.location.href = "index.html";
+     }
+diff --git a/Js/dashboard-ui.js b/Js/dashboard-ui.js
+index e85db40..afc45e3 100644
+--- a/Js/dashboard-ui.js
++++ b/Js/dashboard-ui.js
+@@ -95,6 +95,11 @@
+     });
+   }
+ 
++  function localDateValue(date = new Date()) {
++    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
++    return local.toISOString().slice(0, 10);
++  }
++
+   // Progress bars are sized after render so no inline width is generated.
+   function progressMarkup(value) {
+     const percentage = Math.max(0, Math.min(100, Number(value) || 0));
+@@ -247,6 +252,7 @@
+     statusTag,
+     fmtDate,
+     fmtDateTime,
++    localDateValue,
+     emptyRow,
+     progressMarkup,
+     applyDynamicMeasurements,
+diff --git a/Js/hr-db.js b/Js/hr-db.js
+index 987d19b..0a985eb 100644
+--- a/Js/hr-db.js
++++ b/Js/hr-db.js
+@@ -72,6 +72,7 @@
+   async function load(announce = false) {
+     try {
+       const result = await request("hr_dashboard&" + filters());
++      window.applyAuthUser?.(result.user);
+       viewerId = Number(result.user?.id || 0);
+       data = {
+         metrics: result.metrics || {},
+@@ -812,7 +813,7 @@
+   }
+ 
+   function openStartCycleForm() {
+-  const today = new Date().toISOString().slice(0, 10);
++  const today = localDateValue();
+ 
+   openModal(
+     "Create review-cycle draft",
+diff --git a/Js/manager-db.js b/Js/manager-db.js
+index c04fa26..aa57ec2 100644
+--- a/Js/manager-db.js
++++ b/Js/manager-db.js
+@@ -41,6 +41,11 @@
+       .replace(/\b\w/g, (c) => c.toUpperCase());
+   }
+ 
++  function localDateValue(date = new Date()) {
++    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
++    return local.toISOString().slice(0, 10);
++  }
++
+   function employeeById(id) {
+     return data.employees.find((e) => Number(e.id) === Number(id));
+   }
+@@ -1673,7 +1678,7 @@
+           <input
+             id="checkinDate"
+             type="date"
+-            value="${new Date().toISOString().slice(0, 10)}"
++            value="${localDateValue()}"
+           >
+         </div>
+         <div class="field full">
+diff --git a/Js/organization.js b/Js/organization.js
+index 91f3351..f2b586f 100644
+--- a/Js/organization.js
++++ b/Js/organization.js
+@@ -5,6 +5,10 @@
+   const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (c) => ({
+     "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
+   })[c]);
++  const localDateValue = (date = new Date()) => {
++    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
++    return local.toISOString().slice(0, 10);
++  };
+ 
+   async function request(action, options = {}) {
+     const method = String(options.method || "GET").toUpperCase();
+@@ -293,7 +297,7 @@
+         ? `← Back to ${preferredWorkspace.label} dashboard`
+         : "← Back to dashboard";
+       backLink.hidden = false;
+-      $("#managerEffectiveDate").value = new Date().toISOString().slice(0, 10);
++      $("#managerEffectiveDate").value = localDateValue();
+       bindEvents();
+       await reload();
+       await showPath(state.user.id, false);
+diff --git a/admin.php b/admin.php
+index 0e72f32..da915a9 100644
+--- a/admin.php
++++ b/admin.php
+@@ -408,13 +408,23 @@ function admin_api(string $action): never
+             }
+ 
+             $temporaryPassword = null;
++            $existing = null;
++            $currentManagerId = null;
+             if ($id > 0) {
+-                $stmt = db()->prepare("SELECT role,is_active FROM users WHERE id=?");
++                $stmt = db()->prepare(
++                    "SELECT u.role,u.is_active,apr.reports_to_employee_id manager_id
++                     FROM users u
++                     LEFT JOIN active_primary_relationships apr ON apr.employee_id=u.id
++                     WHERE u.id=?",
++                );
+                 $stmt->execute([$id]);
+                 $existing = $stmt->fetch();
+                 if (!$existing) {
+                     json_response(["ok" => false, "error" => "User not found"], 404);
+                 }
++                $currentManagerId = $existing["manager_id"] === null
++                    ? null
++                    : (int) $existing["manager_id"];
+                 // An administrator cannot change their own role out of access.
+                 if ($id === $actorId && $role !== $existing["role"]) {
+                     json_response(
+@@ -422,81 +432,101 @@ function admin_api(string $action): never
+                         409,
+                     );
+                 }
+-                $pdo = db();
+-                $pdo->beginTransaction();
+-                $pdo->prepare(
+-                    "UPDATE users SET full_name=?,email=?,emp_code=?,role=?,job_title=?,
+-                     department_id=?,team_id=?,date_joined=?,review_eligible=? WHERE id=?",
+-                )->execute([
+-                    $fullName,
+-                    $email,
+-                    $empCode,
+-                    $role,
+-                    $jobTitle !== "" ? $jobTitle : null,
+-                    $departmentId,
+-                    $teamId,
+-                    $dateJoined !== "" ? $dateJoined : null,
+-                    $reviewEligible ? 1 : 0,
+-                    $id,
+-                ]);
+-                if (
+-                    (int) $existing["is_active"] === 1 &&
+-                    $role !== $existing["role"] &&
+-                    admin_capable_user_count() < 1
+-                ) {
+-                    $pdo->rollBack();
+-                    json_response(
+-                        [
+-                            "ok" => false,
+-                            "error" =>
+-                                "This role change would leave no active account able to manage users.",
+-                        ],
+-                        409,
+-                    );
+-                }
+-                $pdo->commit();
+-                audit($actorId, "UPDATE_USER", "user", $id, "Role {$role}; department {$departmentId}");
+-            } else {
+-                $temporaryPassword = admin_temporary_password();
+-                db()->prepare(
+-                    "INSERT INTO users(emp_code,full_name,email,password_hash,role,job_title,
+-                     department_id,team_id,date_joined,is_active,review_eligible) VALUES(?,?,?,?,?,?,?,?,?,1,?)",
+-                )->execute([
+-                    $empCode,
+-                    $fullName,
+-                    $email,
+-                    password_hash($temporaryPassword, PASSWORD_DEFAULT),
+-                    $role,
+-                    $jobTitle !== "" ? $jobTitle : null,
+-                    $departmentId,
+-                    $teamId,
+-                    $dateJoined !== "" ? $dateJoined : null,
+-                    $reviewEligible ? 1 : 0,
+-                ]);
+-                $id = (int) db()->lastInsertId();
+-                audit($actorId, "CREATE_USER", "user", $id, "Created {$email} with role {$role}");
+             }
+ 
+-            $managerWarning = null;
+-            if ($managerId !== null && $managerId > 0) {
+-                try {
+-                    assign_primary_manager(
++            $pdo = db();
++            $pdo->beginTransaction();
++            try {
++                if ($existing) {
++                    $pdo->prepare(
++                        "UPDATE users SET full_name=?,email=?,emp_code=?,role=?,job_title=?,
++                         department_id=?,team_id=?,date_joined=?,review_eligible=? WHERE id=?",
++                    )->execute([
++                        $fullName,
++                        $email,
++                        $empCode,
++                        $role,
++                        $jobTitle !== "" ? $jobTitle : null,
++                        $departmentId,
++                        $teamId,
++                        $dateJoined !== "" ? $dateJoined : null,
++                        $reviewEligible ? 1 : 0,
+                         $id,
+-                        $managerId,
+-                        date("Y-m-d"),
+-                        $actorId,
+-                        "Set from the administrator dashboard",
+-                    );
+-                } catch (InvalidArgumentException $e) {
+-                    // The account is saved; only the reporting line failed.
+-                    $managerWarning = $e->getMessage();
++                    ]);
++                    if (
++                        (int) $existing["is_active"] === 1 &&
++                        $role !== $existing["role"] &&
++                        admin_capable_user_count() < 1
++                    ) {
++                        throw new DomainException(
++                            "This role change would leave no active account able to manage users.",
++                        );
++                    }
++                    audit($actorId, "UPDATE_USER", "user", $id, "Role {$role}; department {$departmentId}");
++                } else {
++                    $temporaryPassword = admin_temporary_password();
++                    $pdo->prepare(
++                        "INSERT INTO users(emp_code,full_name,email,password_hash,role,job_title,
++                         department_id,team_id,date_joined,is_active,review_eligible) VALUES(?,?,?,?,?,?,?,?,?,1,?)",
++                    )->execute([
++                        $empCode,
++                        $fullName,
++                        $email,
++                        password_hash($temporaryPassword, PASSWORD_DEFAULT),
++                        $role,
++                        $jobTitle !== "" ? $jobTitle : null,
++                        $departmentId,
++                        $teamId,
++                        $dateJoined !== "" ? $dateJoined : null,
++                        $reviewEligible ? 1 : 0,
++                    ]);
++                    $id = (int) $pdo->lastInsertId();
++                    audit($actorId, "CREATE_USER", "user", $id, "Created {$email} with role {$role}");
++                }
++
++                if ($managerId !== $currentManagerId) {
++                    if ($managerId !== null && $managerId > 0) {
++                        assign_primary_manager(
++                            $id,
++                            $managerId,
++                            date("Y-m-d"),
++                            $actorId,
++                            "Set from the administrator dashboard",
++                        );
++                    } else {
++                        end_primary_manager(
++                            $id,
++                            date("Y-m-d"),
++                            $actorId,
++                            "Removed from the administrator dashboard",
++                        );
++                    }
++                }
++                $pdo->commit();
++            } catch (InvalidArgumentException|DomainException $e) {
++                if ($pdo->inTransaction()) {
++                    $pdo->rollBack();
+                 }
++                json_response(["ok" => false, "error" => $e->getMessage()], 422);
++            } catch (Throwable $e) {
++                if ($pdo->inTransaction()) {
++                    $pdo->rollBack();
++                }
++                throw $e;
++            }
++
++            // Read the committed row back before reporting success. This also
++            // gives the client authoritative values instead of trusting its form.
++            $saved = admin_user_rows(["search" => $email]);
++            $saved = array_values(array_filter($saved, fn(array $row): bool => (int) $row["id"] === $id));
++            if (!$saved) {
++                throw new RuntimeException("The account could not be verified after saving.");
+             }
+             json_response([
+                 "ok" => true,
+                 "id" => $id,
++                "user" => $saved[0],
+                 "temporaryPassword" => $temporaryPassword,
+-                "managerWarning" => $managerWarning,
+                 "message" => $temporaryPassword ? "Account created." : "Account updated.",
+             ]);
+ 
+diff --git a/config.php b/config.php
+index 1b3663b..55fa184 100644
+--- a/config.php
++++ b/config.php
+@@ -3,6 +3,15 @@ declare(strict_types=1);
+ 
+ // Database and application settings. Railway exposes MYSQL* variables for its
+ // MySQL service; the PPPM_* names remain the explicit override and local setup.
++$applicationTimezone = getenv("PPPM_APP_TIMEZONE") ?: "Asia/Colombo";
++try {
++    $applicationTimezoneObject = new DateTimeZone($applicationTimezone);
++} catch (Throwable) {
++    $applicationTimezone = "Asia/Colombo";
++    $applicationTimezoneObject = new DateTimeZone($applicationTimezone);
++}
++date_default_timezone_set($applicationTimezone);
++
+ $databaseUrl = getenv("PPPM_DB_URL") ?: getenv("MYSQL_URL") ?: "";
+ $databaseParts = $databaseUrl !== "" ? parse_url($databaseUrl) : false;
+ 
+@@ -32,6 +41,12 @@ define("DB_PORT", (int) $databasePort);
+ define("DB_NAME", $databaseName);
+ define("DB_USER", $databaseUser);
+ define("DB_PASS", $databasePass);
++define("APP_TIMEZONE", $applicationTimezone);
++define(
++    "DB_SESSION_TIMEZONE",
++    getenv("PPPM_DB_TIMEZONE") ?:
++        (new DateTimeImmutable("now", $applicationTimezoneObject))->format("P"),
++);
+ define(
+     "APP_DEBUG",
+     filter_var(getenv("PPPM_APP_DEBUG") ?: "false", FILTER_VALIDATE_BOOLEAN),
+@@ -56,6 +71,10 @@ function db(): PDO
+             PDO::MYSQL_ATTR_MULTI_STATEMENTS => true,
+         ],
+     );
++    // MySQL TIMESTAMP values are stored in UTC internally. Selecting the
++    // application offset here makes Railway and XAMPP return the same local
++    // wall-clock values, while PHP uses the matching IANA timezone above.
++    $pdo->exec("SET time_zone = " . $pdo->quote(DB_SESSION_TIMEZONE));
+     return $pdo;
+ }
+ 
+diff --git a/hr.php b/hr.php
+index cea8454..e17aa5c 100644
+--- a/hr.php
++++ b/hr.php
+@@ -759,7 +759,11 @@ function hr_api(string $action): never
+             if(!hr_can($user,'hr.competencies.manage')) json_response(['ok'=>false,'error'=>'You do not have permission to manage competencies'],403);
+             $id=(int)($in['id']??0);$name=trim((string)($in['name']??''));$description=trim((string)($in['description']??''));$active=filter_var($in['isActive']??true,FILTER_VALIDATE_BOOLEAN);
+             if($name===''||strlen($name)>80||strlen($description)>255) json_response(['ok'=>false,'error'=>'Enter a competency name and optional description within the limits'],422);
+-            if($id){db()->prepare('UPDATE competencies SET name=?,description=?,is_active=? WHERE id=?')->execute([$name,$description?:null,$active?1:0,$id]);}else{db()->prepare('INSERT INTO competencies(name,description,is_active) VALUES(?,?,?)')->execute([$name,$description?:null,$active?1:0]);$id=(int)db()->lastInsertId();}
++            if($id){
++                $exists=db()->prepare('SELECT COUNT(*) FROM competencies WHERE id=?');$exists->execute([$id]);
++                if(!(bool)$exists->fetchColumn())json_response(['ok'=>false,'error'=>'Competency not found'],404);
++                db()->prepare('UPDATE competencies SET name=?,description=?,is_active=? WHERE id=?')->execute([$name,$description?:null,$active?1:0,$id]);
++            }else{db()->prepare('INSERT INTO competencies(name,description,is_active) VALUES(?,?,?)')->execute([$name,$description?:null,$active?1:0]);$id=(int)db()->lastInsertId();}
+             audit($actorId,'SAVE_COMPETENCY','competency',$id,$name);json_response(['ok'=>true,'id'=>$id]);
+ 
+                 // Start a new review cycle.
+diff --git a/organization.php b/organization.php
+index 37337e9..d4a03d5 100644
+--- a/organization.php
++++ b/organization.php
+@@ -155,7 +155,10 @@ function assign_primary_manager(
+         throw new InvalidArgumentException("An employee cannot report to themselves");
+     }
+     $pdo = db();
+-    $pdo->beginTransaction();
++    $ownsTransaction = !$pdo->inTransaction();
++    if ($ownsTransaction) {
++        $pdo->beginTransaction();
++    }
+     try {
+         $pdo->query("SELECT id FROM organization_lock WHERE id=1 FOR UPDATE")->fetchColumn();
+         if (would_create_reporting_cycle($employeeId, $managerId, $effectiveFrom)) {
+@@ -172,11 +175,18 @@ function assign_primary_manager(
+             if ((int) $current["reports_to_employee_id"] === $managerId) {
+                 throw new InvalidArgumentException("That employee already has this primary manager");
+             }
+-            if ($effectiveFrom <= $current["effective_from"]) {
+-                throw new InvalidArgumentException("The new effective date must be after the current relationship start date");
++            if ($effectiveFrom < $current["effective_from"]) {
++                throw new InvalidArgumentException("The new effective date cannot be before the current relationship start date");
++            }
++            if ($effectiveFrom === $current["effective_from"]) {
++                // Replacing a relationship created today cannot produce a
++                // valid historical interval, so replace its zero-day row.
++                $pdo->prepare("DELETE FROM reporting_relationships WHERE id=?")
++                    ->execute([(int) $current["id"]]);
++            } else {
++                $pdo->prepare("UPDATE reporting_relationships SET effective_to=? WHERE id=?")
++                    ->execute([$effectiveFrom, (int) $current["id"]]);
+             }
+-            $pdo->prepare("UPDATE reporting_relationships SET effective_to=? WHERE id=?")
+-                ->execute([$effectiveFrom, (int) $current["id"]]);
+         }
+         $stmt = $pdo->prepare(
+             "INSERT INTO reporting_relationships
+@@ -202,10 +212,78 @@ function assign_primary_manager(
+         audit($createdBy, "CHANGE_PRIMARY_MANAGER", "reporting_relationship", $id,
+             "Employee {$employeeId}; manager {$managerId}; effective {$effectiveFrom}" .
+             ($reason ? "; reason: " . substr($reason, 0, 150) : ""));
+-        $pdo->commit();
++        if ($ownsTransaction) {
++            $pdo->commit();
++        }
+         return $id;
+     } catch (Throwable $e) {
+-        if ($pdo->inTransaction()) {
++        if ($ownsTransaction && $pdo->inTransaction()) {
++            $pdo->rollBack();
++        }
++        throw $e;
++    }
++}
++
++/** End the active primary reporting relationship without inventing a manager. */
++function end_primary_manager(
++    int $employeeId,
++    string $effectiveTo,
++    int $changedBy,
++    ?string $reason = null,
++): bool {
++    if (!organization_user_exists($employeeId, false)) {
++        throw new InvalidArgumentException("Employee account not found");
++    }
++    if (!valid_date($effectiveTo)) {
++        throw new InvalidArgumentException("Enter a valid effective date");
++    }
++
++    $pdo = db();
++    $ownsTransaction = !$pdo->inTransaction();
++    if ($ownsTransaction) {
++        $pdo->beginTransaction();
++    }
++    try {
++        $pdo->query("SELECT id FROM organization_lock WHERE id=1 FOR UPDATE")->fetchColumn();
++        $stmt = $pdo->prepare(
++            "SELECT id,reports_to_employee_id,effective_from
++             FROM reporting_relationships
++             WHERE employee_id=? AND relationship_type='primary' AND effective_to IS NULL
++             ORDER BY effective_from DESC,id DESC LIMIT 1 FOR UPDATE",
++        );
++        $stmt->execute([$employeeId]);
++        $current = $stmt->fetch();
++        if (!$current) {
++            if ($ownsTransaction) {
++                $pdo->commit();
++            }
++            return false;
++        }
++
++        // A relationship created today cannot be closed today because the
++        // schema requires effective_to > effective_from. Removing that
++        // zero-day row represents the requested state without fake history.
++        if ($effectiveTo <= $current["effective_from"]) {
++            $pdo->prepare("DELETE FROM reporting_relationships WHERE id=?")
++                ->execute([(int) $current["id"]]);
++        } else {
++            $pdo->prepare("UPDATE reporting_relationships SET effective_to=? WHERE id=?")
++                ->execute([$effectiveTo, (int) $current["id"]]);
++        }
++        audit(
++            $changedBy,
++            "REMOVE_PRIMARY_MANAGER",
++            "reporting_relationship",
++            (int) $current["id"],
++            "Employee {$employeeId}; previous manager {$current['reports_to_employee_id']}" .
++                ($reason ? "; reason: " . substr($reason, 0, 150) : ""),
++        );
++        if ($ownsTransaction) {
++            $pdo->commit();
++        }
++        return true;
++    } catch (Throwable $e) {
++        if ($ownsTransaction && $pdo->inTransaction()) {
+             $pdo->rollBack();
+         }
+         throw $e;
+@@ -418,6 +496,11 @@ function organization_api(string $action): never
+                 json_response(["ok" => false, "error" => "Invalid department details"], 422);
+             }
+             if ($id > 0) {
++                $exists = db()->prepare("SELECT COUNT(*) FROM departments WHERE id=?");
++                $exists->execute([$id]);
++                if (!(bool) $exists->fetchColumn()) {
++                    json_response(["ok" => false, "error" => "Department not found"], 404);
++                }
+                 db()->prepare("UPDATE departments SET department_code=?,department_name=?,head_employee_id=?,is_active=? WHERE id=?")
+                     ->execute([$code, $name, $headId, $active, $id]);
+             } else {
+@@ -447,6 +530,11 @@ function organization_api(string $action): never
+                 json_response(["ok" => false, "error" => "Department not found"], 422);
+             }
+             if ($id > 0) {
++                $exists = db()->prepare("SELECT COUNT(*) FROM teams WHERE id=?");
++                $exists->execute([$id]);
++                if (!(bool) $exists->fetchColumn()) {
++                    json_response(["ok" => false, "error" => "Team not found"], 404);
++                }
+                 db()->prepare("UPDATE teams SET department_id=?,team_code=?,team_name=?,team_lead_employee_id=?,is_active=? WHERE id=?")
+                     ->execute([$departmentId, $code, $name, $leadId, $active, $id]);
+             } else {
+diff --git a/tests/employee_workspaces.mjs b/tests/employee_workspaces.mjs
+index 98cec42..bf34b33 100644
+--- a/tests/employee_workspaces.mjs
++++ b/tests/employee_workspaces.mjs
+@@ -15,6 +15,30 @@ class Client {
+ const alex=await new Client().login('alex'),casey=await new Client().login('casey'),jordan=await new Client().login('jordan'),morgan=await new Client().login('morgan');
+ const blair=await new Client().login('blair'),quinn=await new Client().login('quinn');
+ const hr=await new Client().login('taylor'),hrLead=await new Client().login('riley'),coordinator=await new Client().login('sam'),admin=await new Client().login('devon'),ceo=await new Client().login('avery');
++
++// Administrator edits must be committed, readable from the affected user's
++// existing session, and safe when the reporting manager did not change.
++const adminDashboard=await admin.call('admin_dashboard');
++const originalAlex=adminDashboard.users.find(row=>Number(row.id)===Number(alex.user.id));
++assert(originalAlex,'Administrator dashboard must include Alex');
++const accountPayload=(overrides={})=>({
++  id:Number(originalAlex.id),fullName:originalAlex.full_name,email:originalAlex.email,
++  empCode:originalAlex.emp_code,role:originalAlex.role,jobTitle:originalAlex.job_title||'',
++  departmentId:Number(originalAlex.department_id),teamId:originalAlex.team_id??'',
++  dateJoined:originalAlex.date_joined||'',managerId:originalAlex.manager_id??'',
++  reviewEligible:Number(originalAlex.review_eligible)!==0,...overrides,
++});
++const changedAccount=await admin.call('admin_user_save',accountPayload({
++  fullName:'Alex Morgan Updated',jobTitle:'Senior Product Specialist',
++}));
++assert.equal(changedAccount.user.full_name,'Alex Morgan Updated');
++assert.equal(changedAccount.user.job_title,'Senior Product Specialist');
++const affectedSession=(await alex.call('me')).user;
++assert.equal(affectedSession.full_name,'Alex Morgan Updated');
++assert.equal(affectedSession.job_title,'Senior Product Specialist');
++await admin.call('admin_user_save',accountPayload());
++assert.equal((await alex.call('me')).user.full_name,originalAlex.full_name);
++
+ assert.deepEqual(casey.user.workspaces.map(w=>w.key),['employee','manager']);
+ assert.deepEqual(hr.user.workspaces.map(w=>w.key),['employee','hr']);
+ assert(admin.user.workspaces.some(w=>w.key==='employee'),'Administrators with Personal permission must receive the ordinary Personal workspace');
+diff --git a/tests/railway_persistence_contracts.mjs b/tests/railway_persistence_contracts.mjs
+new file mode 100644
+index 0000000..215059e
+--- /dev/null
++++ b/tests/railway_persistence_contracts.mjs
+@@ -0,0 +1,28 @@
++import assert from 'node:assert/strict';
++import {readFileSync} from 'node:fs';
++
++const read=(name)=>readFileSync(new URL(`../${name}`,import.meta.url),'utf8');
++const config=read('config.php');
++const admin=read('admin.php');
++const organization=read('organization.php');
++const auth=read('Js/auth.js');
++const headers=read('.htaccess');
++const hr=read('hr.php');
++
++const cases=[
++  ['application timezone defaults to Asia/Colombo',/PPPM_APP_TIMEZONE[\s\S]*Asia\/Colombo/.test(config)],
++  ['MySQL session uses the application offset',/SET time_zone/.test(config)&&/DB_SESSION_TIMEZONE/.test(config)],
++  ['open sessions refresh account identity from me',/async function refreshIdentity[\s\S]*request\("me"\)/.test(auth)],
++  ['access changes redirect users away from unavailable workspaces',/pageAllowedFor[\s\S]*dashboard_path/.test(auth)],
++  ['administrator account saves are transactional',/case "admin_user_save"[\s\S]*beginTransaction\(\)[\s\S]*commit\(\)/.test(admin)],
++  ['administrator reads the committed user back before success',/could not be verified after saving/.test(admin)&&/"user" => \$saved\[0\]/.test(admin)],
++  ['unchanged managers are not rewritten',/\$managerId !== \$currentManagerId/.test(admin)],
++  ['same-day manager corrections replace zero-day rows',/Replacing a relationship created today[\s\S]*DELETE FROM reporting_relationships/.test(organization)],
++  ['No manager ends the persisted primary relationship',/end_primary_manager/.test(admin)&&/REMOVE_PRIMARY_MANAGER/.test(organization)],
++  ['missing department and team updates return not found',/Department not found/.test(organization)&&/Team not found/.test(organization)],
++  ['missing competency updates return not found',/Competency not found/.test(hr)],
++  ['deployed JavaScript and CSS are not served stale',/html\|php\|js\|css/.test(headers)&&/Cache-Control "no-store"/.test(headers)],
++];
++
++for(const [name,ok] of cases)assert.ok(ok,name);
++console.log(`PASS: ${cases.length} Railway persistence and synchronization contracts.`);
