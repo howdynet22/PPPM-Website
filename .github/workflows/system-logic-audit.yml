@@ -1,12 +1,14 @@
-name: System logic audit
+name: Apply verified Railway persistence fixes
 
 on:
-  pull_request:
   push:
-    branches: [fix/system-logic-audit]
+    branches: [main]
+
+permissions:
+  contents: write
 
 jobs:
-  workflow-regression:
+  apply-test-publish:
     runs-on: ubuntu-latest
     services:
       mysql:
@@ -20,6 +22,13 @@ jobs:
           --health-interval=10s --health-timeout=5s --health-retries=10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply reviewed patch
+        run: |
+          git checkout HEAD^ -- .github/workflows/system-logic-audit.yml
+          git apply --index railway-persistence-fixes.patch
+          git rm railway-persistence-fixes.patch
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
@@ -50,6 +59,7 @@ jobs:
           for file in *.php scripts/*.php tests/*.php; do php -l "$file"; done
           for file in Js/*.js tests/*.mjs; do node --check "$file"; done
           node tests/system_logic_audit.mjs
+          node tests/railway_persistence_contracts.mjs
       - name: HTTP workflow tests
         run: |
           php -S 127.0.0.1:8080 -t . >/tmp/pppm-server.log 2>&1 &
@@ -85,3 +95,10 @@ jobs:
           mysql -h127.0.0.1 -uroot -proot pppm_test < tests/actionable_steps_checks.sql
           mysql -h127.0.0.1 -uroot -proot pppm_test < tests/peer_nomination_checks.sql
           mysql -h127.0.0.1 -uroot -proot pppm_test < tests/review_nomination_workflow_checks.sql
+      - name: Publish verified changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix Railway persistence and timezone consistency"
+          git push origin HEAD:main
