@@ -233,6 +233,19 @@ function hr_cycle_create(array $in, array $user): array
     if ($periodEnd < $periodStart) {
         api_error("End date cannot be before the start date.", 422);
     }
+
+    // Review periods are intentionally limited to the three four-month windows.
+    $period = review_cycle_period($periodStart, $periodEnd);
+    if ($period === null) {
+        api_error("Choose a valid four-month review period: Jan-Apr, May-Aug, or Sep-Dec.", 422);
+    }
+    $duplicate = $pdo = db();
+    $duplicateStmt = $duplicate->prepare("SELECT id FROM review_cycles WHERE period_start=? AND period_end=? LIMIT 1");
+    $duplicateStmt->execute([$periodStart, $periodEnd]);
+    if ($duplicateStmt->fetchColumn()) {
+        api_error("Review cycle for this period already exists.", 409);
+    }
+
     if ($selfDeadline > $peerDeadline || $peerDeadline > $managerDeadline) {
         api_error(
             "Review deadlines must be ordered: self review, then peer review, then manager review.",
@@ -698,6 +711,10 @@ function hr_api(string $action): never
             $manager=(string)($in['manager_deadline']??$cycle['manager_deadline']);
             $min=(int)($in['min_peers']??$cycle['min_peers']);
             if($name===''||strlen($name)>120||$min<3||$min>10||!valid_date($periodStart)||!valid_date($periodEnd)||$periodEnd<$periodStart||!valid_date($self)||!valid_date($peer)||!valid_date($manager)||$self>$peer||$peer>$manager) json_response(['ok'=>false,'error'=>'Enter a valid name, performance period, peer threshold, and ordered deadlines'],422);
+  if (review_cycle_period($periodStart, $periodEnd) === null) json_response(['ok'=>false,'error'=>'Choose a valid four-month review period: Jan-Apr, May-Aug, or Sep-Dec.'],422);
+  $duplicate=db()->prepare('SELECT id FROM review_cycles WHERE period_start=? AND period_end=? AND id<>? LIMIT 1');
+  $duplicate->execute([$periodStart,$periodEnd,$id]);
+  if ($duplicate->fetchColumn()) json_response(['ok'=>false,'error'=>'Review cycle for this period already exists.'],409);
             if($cycle['status']!=='draft' && strlen($reason)<15) json_response(['ok'=>false,'error'=>'A deadline extension needs a reason of at least 15 characters'],422);
             if($cycle['status']!=='draft' && ($name!==$cycle['name']||$min!==(int)$cycle['min_peers']||$periodStart!==$cycle['period_start']||$periodEnd!==$cycle['period_end'])) json_response(['ok'=>false,'error'=>'Name, performance period and peer threshold are frozen after publication'],409);
             if($cycle['status']!=='draft' && ($self<$cycle['self_deadline']||$peer<$cycle['peer_deadline']||$manager<$cycle['manager_deadline'])) json_response(['ok'=>false,'error'=>'Published-cycle deadlines may be extended, not shortened'],409);

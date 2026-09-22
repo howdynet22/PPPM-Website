@@ -1,11 +1,37 @@
 <?php
 declare(strict_types=1);
 
-// Database and application settings.
-define("DB_HOST", getenv("PPPM_DB_HOST") ?: "127.0.0.1");
-define("DB_NAME", getenv("PPPM_DB_NAME") ?: "perf_tracker");
-define("DB_USER", getenv("PPPM_DB_USER") ?: "root");
-define("DB_PASS", getenv("PPPM_DB_PASS") ?: "");
+// Database and application settings. Railway exposes MYSQL* variables for its
+// MySQL service; the PPPM_* names remain the explicit override and local setup.
+$databaseUrl = getenv("PPPM_DB_URL") ?: getenv("MYSQL_URL") ?: "";
+$databaseParts = $databaseUrl !== "" ? parse_url($databaseUrl) : false;
+
+$databaseHost = getenv("PPPM_DB_HOST") ?: getenv("MYSQLHOST") ?: "127.0.0.1";
+$databasePort = getenv("PPPM_DB_PORT") ?: getenv("MYSQLPORT") ?: "3306";
+$databaseName = getenv("PPPM_DB_NAME") ?: getenv("MYSQLDATABASE") ?: "perf_tracker";
+$databaseUser = getenv("PPPM_DB_USER") ?: getenv("MYSQLUSER") ?: "root";
+$databasePass = getenv("PPPM_DB_PASS");
+$databasePass = $databasePass !== false ? $databasePass : (getenv("MYSQLPASSWORD") ?: "");
+
+if (is_array($databaseParts)) {
+    $databaseHost = $databaseParts["host"] ?? $databaseHost;
+    $databasePort = (string) ($databaseParts["port"] ?? $databasePort);
+    $databaseName = isset($databaseParts["path"])
+        ? ltrim($databaseParts["path"], "/")
+        : $databaseName;
+    $databaseUser = isset($databaseParts["user"])
+        ? urldecode($databaseParts["user"])
+        : $databaseUser;
+    $databasePass = isset($databaseParts["pass"])
+        ? urldecode($databaseParts["pass"])
+        : $databasePass;
+}
+
+define("DB_HOST", $databaseHost);
+define("DB_PORT", (int) $databasePort);
+define("DB_NAME", $databaseName);
+define("DB_USER", $databaseUser);
+define("DB_PASS", $databasePass);
 define(
     "APP_DEBUG",
     filter_var(getenv("PPPM_APP_DEBUG") ?: "false", FILTER_VALIDATE_BOOLEAN),
@@ -20,13 +46,14 @@ function db(): PDO
         return $pdo;
     }
     $pdo = new PDO(
-        "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
+        "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4",
         DB_USER,
         DB_PASS,
         [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
+            PDO::MYSQL_ATTR_MULTI_STATEMENTS => true,
         ],
     );
     return $pdo;
@@ -35,7 +62,12 @@ function db(): PDO
 // Session security helpers.
 function is_https(): bool
 {
-    return !empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off";
+    if (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") {
+        return true;
+    }
+    // Railway terminates TLS at its proxy and forwards the original scheme.
+    $forwardedProto = strtolower(trim(explode(",", (string) ($_SERVER["HTTP_X_FORWARDED_PROTO"] ?? ""))[0]));
+    return $forwardedProto === "https";
 }
 
 function start_app_session(): void

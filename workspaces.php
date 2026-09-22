@@ -157,6 +157,9 @@ function workspace_personal(int $viewer): array
             ],$peers),
         ];
     }
+    // Backfill the same persistent notification used by publication for any
+    // already-open participant, while the unique dedupe key prevents repeats.
+    ensure_open_review_cycle_notification($viewer);
     return ['goals'=>$goals, 'plans'=>$plans, 'pips'=>workspace_pips($viewer,'employee'), 'reviews'=>$reviews,
         'requests'=>$requests, 'nominations'=>$nominations, 'nominationOptions'=>$nominationOptions,
         'notifications'=>get_notifications($viewer,false,50),

@@ -1,5 +1,33 @@
 # PPPM — manager / personal workspace update
 
+## Railway deployment
+
+The repository includes a production Apache/PHP `Dockerfile`, database-aware
+health check, and a first-run bootstrap. Railway detects the Dockerfile from the
+repository root and runs the application on its injected `PORT`.
+
+1. In Railway, create a project and add a **MySQL** database service.
+2. Add this GitHub repository as a second service and deploy the `main` branch.
+3. In the web service's **Variables** tab, add a reference variable named
+   `MYSQL_URL` whose value points to the MySQL service's `MYSQL_URL` (for a
+   service named `MySQL`, the raw value is `${{MySQL.MYSQL_URL}}`).
+4. Generate a public domain for the web service under **Networking**.
+
+On its first start, the container waits up to 60 seconds for MySQL, creates the
+schema in Railway's selected database, and seeds the fictional demo fixture.
+Later deploys detect the existing schema and fixture and make no data changes.
+All demo accounts in `users.txt` initially use `password123`.
+
+Automatic demo seeding is enabled by default for this coursework/demo build.
+Set `PPPM_AUTO_SEED_DEMO=false` on the web service before its first deployment
+to initialize only the schema. An empty database is required for automatic
+initialization; an existing database must be upgraded with the numbered
+migrations instead of being overwritten.
+
+The app accepts either `MYSQL_URL`, Railway's individual `MYSQLHOST`,
+`MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER`, and `MYSQLPASSWORD` values, or the
+equivalent `PPPM_DB_*` variables documented below.
+
 ## System-logic audit update
 
 Apply `migrations/010_system_logic_audit.sql` after migration 009 when upgrading an existing database. Review cycles are now created as drafts and published only after preflight verifies a frozen competency framework, eligible participants, active managers, dates and the one-active-cycle rule. Deadlines mark work overdue rather than permanently locking it while its lifecycle stage is still open.

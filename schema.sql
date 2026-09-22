@@ -366,7 +366,8 @@ CREATE TABLE review_cycles (
   published_at DATETIME NULL,
   released_at DATETIME NULL,
   CONSTRAINT fk_cycle_creator FOREIGN KEY (created_by) REFERENCES users (id),
-  CONSTRAINT chk_cycle_dates CHECK (period_end >= period_start)
+  CONSTRAINT chk_cycle_dates CHECK (period_end >= period_start),
+  UNIQUE KEY uq_review_cycle_period (period_start, period_end)
 );
 
 CREATE TABLE review_cycle_transitions (

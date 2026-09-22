@@ -817,85 +817,61 @@
   openModal(
     "Create review-cycle draft",
     `
-      <form id="startCycleForm">
-        <div class="form-grid">
-          <label>
-            Cycle name
-            <input
-              id="cycleName"
-              name="name"
-              type="text"
-              maxlength="120"
-              placeholder="e.g. Q4 2026 Performance Review"
-              required
-            />
-          </label>
+      <form id="startCycleForm" class="cycle-form">
+        <section class="cycle-form-section cycle-preset-section" aria-labelledby="cyclePresetHeading">
+          <div class="cycle-section-heading">
+            <div>
+              <h4 id="cyclePresetHeading">Cycle preset</h4>
+              <p>Choose the four-month performance period for this draft.</p>
+            </div>
+          </div>
+          <div class="field">
+            <label for="cyclePreset">Four-month cycle preset</label>
+            <select id="cyclePreset" name="cycle_preset" required>
+              <option value="">Choose a period</option>
+              <option value="1">Cycle 1 — January 1 to April 30</option>
+              <option value="2">Cycle 2 — May 1 to August 31</option>
+              <option value="3">Cycle 3 — September 1 to December 31</option>
+            </select>
+            <small class="field-hint">The period is validated again by the server.</small>
+          </div>
+        </section>
 
-          <label>
-            Required peer reviewers
-            <input
-              id="cycleMinPeers"
-              name="min_peers"
-              type="number"
-              min="3"
-              max="10"
-              value="3"
-              required
-            />
-            <small>Each participant must have this many approved peer reviewers. Anonymous peer results are also hidden until this many responses are submitted.</small>
-          </label>
+        <section class="cycle-form-section" aria-labelledby="cycleDetailsHeading">
+          <div class="cycle-section-heading">
+            <div>
+              <h4 id="cycleDetailsHeading">Cycle information</h4>
+              <p>Name the cycle and set the peer-review requirement.</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="cycleName">Cycle name <span class="required-mark">Required</span></label>
+              <input id="cycleName" name="name" type="text" maxlength="120" placeholder="e.g. Cycle 1 2027 Performance Review" required />
+            </div>
+            <div class="field">
+              <label for="cycleMinPeers">Peer reviewers</label>
+              <input id="cycleMinPeers" name="min_peers" type="number" min="3" max="10" value="3" required />
+              <small class="field-hint">Each participant must have this many approved peer reviewers. Anonymous peer results are also hidden until this many responses are submitted.</small>
+            </div>
+          </div>
+        </section>
 
-          <label>
-            Period start
-            <input
-              id="cycleStart"
-              name="period_start"
-              type="date"
-              value="${today}"
-              required
-            />
-          </label>
-
-          <label>
-            Period end
-            <input
-              id="cycleEnd"
-              name="period_end"
-              type="date"
-              required
-            />
-          </label>
-
-          <label>
-            Self-review deadline
-            <input
-              id="cycleSelfDeadline"
-              name="self_deadline"
-              type="date"
-              required
-            />
-          </label>
-
-          <label>
-            Peer-review deadline
-            <input
-              id="cyclePeerDeadline"
-              name="peer_deadline"
-              type="date"
-              required
-            />
-          </label>
-
-          <label>
-            Manager-review deadline
-            <input
-              id="cycleManagerDeadline"
-              name="manager_deadline"
-              type="date"
-              required
-            />
-          </label>
-        </div>
+        <section class="cycle-form-section" aria-labelledby="cycleDatesHeading">
+          <div class="cycle-section-heading">
+            <div>
+              <h4 id="cycleDatesHeading">Review dates</h4>
+              <p>Set the performance period and deadlines in sequence.</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field"><label for="cycleStart">Period start</label><input id="cycleStart" name="period_start" type="date" value="${today}" required /></div>
+            <div class="field"><label for="cycleEnd">Period end</label><input id="cycleEnd" name="period_end" type="date" required /></div>
+            <div class="field"><label for="cycleSelfDeadline">Self-review deadline</label><input id="cycleSelfDeadline" name="self_deadline" type="date" required /></div>
+            <div class="field"><label for="cyclePeerDeadline">Peer-review deadline</label><input id="cyclePeerDeadline" name="peer_deadline" type="date" required /></div>
+            <div class="field full"><label for="cycleManagerDeadline">Manager-review deadline</label><input id="cycleManagerDeadline" name="manager_deadline" type="date" required /></div>
+          </div>
+        </section>
       </form>
     `,
     `
@@ -903,6 +879,20 @@
       <button class="btn primary" id="saveCycleBtn">Save draft</button>
     `,
   );
+
+  $("#cyclePreset")?.addEventListener("change", (event) => {
+    const year = new Date().getFullYear();
+    const windows = {
+      "1": [`${year}-01-01`, `${year}-04-30`, `Cycle 1 ${year} Performance Review`],
+      "2": [`${year}-05-01`, `${year}-08-31`, `Cycle 2 ${year} Performance Review`],
+      "3": [`${year}-09-01`, `${year}-12-31`, `Cycle 3 ${year} Performance Review`],
+    };
+    const selected = windows[event.target.value];
+    if (!selected) return;
+    $("#cycleStart").value = selected[0];
+    $("#cycleEnd").value = selected[1];
+    if (!$("#cycleName").value.trim()) $("#cycleName").value = selected[2];
+  });
 
   $("#cancelCycleBtn")?.addEventListener("click", closeModal);
 

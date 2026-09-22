@@ -1069,13 +1069,32 @@ button {
   font-size: 22px;
   color: var(--muted);
 }
-.modal-foot {
+  .modal-foot {
   padding: 14px 20px;
   border-top: 1px solid var(--line);
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-}
+  }
+
+  /* Review-cycle draft form */
+  .modal:has(.cycle-form) { width: min(680px, 100%); }
+  .cycle-form { display: grid; gap: 20px; }
+  .cycle-form-section { display: grid; gap: 13px; }
+  .cycle-form-section + .cycle-form-section { padding-top: 18px; border-top: 1px solid var(--line); }
+  .cycle-section-heading h4 { margin: 0 0 3px; font-size: 13px; color: var(--text); }
+  .cycle-section-heading p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .cycle-form .field { margin-bottom: 0; }
+  .cycle-form .field label { font-size: 12px; }
+  .cycle-form .field-hint { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+  .cycle-form .required-mark { margin-left: 4px; color: var(--muted); font-size: 10px; font-weight: 500; }
+  .cycle-preset-section { padding: 13px 14px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); }
+  .cycle-preset-section .field select { background: #fff; }
+  @media (max-width: 640px) {
+    .modal:has(.cycle-form) { width: 100%; }
+    .cycle-form { gap: 16px; }
+    .cycle-form-section + .cycle-form-section { padding-top: 15px; }
+  }
 .toast {
   position: fixed;
   right: 24px;

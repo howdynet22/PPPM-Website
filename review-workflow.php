@@ -16,6 +16,22 @@ function review_participant_inactive(int $participantId): bool
         || review_exception_active($participantId, 'withdrawn');
 }
 
+function review_cycle_period(string $start, string $end): ?string
+{
+    $startDate = DateTimeImmutable::createFromFormat('!Y-m-d', $start);
+    $endDate = DateTimeImmutable::createFromFormat('!Y-m-d', $end);
+    if (!$startDate || !$endDate || $startDate->format('Y-m-d') !== $start || $endDate->format('Y-m-d') !== $end) {
+        return null;
+    }
+    $year = $startDate->format('Y');
+    $windows = [
+        "{$year}-01-01|{$year}-04-30" => "Cycle 1",
+        "{$year}-05-01|{$year}-08-31" => "Cycle 2",
+        "{$year}-09-01|{$year}-12-31" => "Cycle 3",
+    ];
+    return $windows[$start . '|' . $end] ?? null;
+}
+
 function cycle_competencies(int $cycleId): array
 {
     $stmt = db()->prepare("SELECT competency_id id,name,description FROM review_cycle_competencies WHERE cycle_id=? ORDER BY display_order");
@@ -96,8 +112,8 @@ function review_publish_cycle(int $cycleId, int $actorId): array
         foreach($people as $person){
             $ins->execute([$cycleId,$person['id'],$person['manager_id'],$person['manager_id']]);
             $self->execute([(int)$pdo->lastInsertId(),$person['id'],$cycle['self_deadline']]);
-            create_notification((int)$person['id'],'review_cycle_open','Review cycle opened',
-                'Your self review for “'.$cycle['name'].'” is ready.','review_cycle',$cycleId,
+            create_notification((int)$person['id'],'review_cycle_open','New Performance Review Cycle',
+                'Your “'.$cycle['name'].'” performance review is now available.','review_cycle',$cycleId,
                 'employee-dashboard.html#feedback',"cycle-open:$cycleId");
         }
         $snap=$pdo->prepare("INSERT INTO review_cycle_competencies(cycle_id,competency_id,name,description,display_order) VALUES(?,?,?,?,?)");

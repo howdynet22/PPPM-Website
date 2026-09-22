@@ -40,6 +40,35 @@ function create_bulk_notifications(
     return $ids;
 }
 
+function ensure_open_review_cycle_notification(int $userId): void
+{
+    $stmt = db()->prepare(
+        "SELECT rp.cycle_id,rc.name
+         FROM review_participants rp
+         JOIN review_cycles rc ON rc.id=rp.cycle_id
+         WHERE rp.employee_id=? AND rc.status='open'
+           AND NOT EXISTS (
+             SELECT 1 FROM review_participant_exceptions x
+             WHERE x.participant_id=rp.id AND x.revoked_at IS NULL
+               AND x.exception_type IN ('excluded','withdrawn')
+           )
+         ORDER BY rc.period_end DESC,rc.id DESC",
+    );
+    $stmt->execute([$userId]);
+    foreach ($stmt->fetchAll() as $cycle) {
+        create_notification(
+            $userId,
+            'review_cycle_open',
+            'New Performance Review Cycle',
+            'Your “'.$cycle['name'].'” performance review is now available.',
+            'review_cycle',
+            (int)$cycle['cycle_id'],
+            'employee-dashboard.html#feedback',
+            'cycle-open:'.(int)$cycle['cycle_id'],
+        );
+    }
+}
+
 function get_notifications(int $userId, bool $unreadOnly=false, int $limit=50, int $offset=0): array
 {
     $limit=max(1,min(100,$limit));
