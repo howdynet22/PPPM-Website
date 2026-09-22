@@ -1,7 +1,8 @@
 FROM php:8.3-apache
 
 RUN docker-php-ext-install pdo_mysql \
-    && a2enmod headers rewrite
+    && a2dismod mpm_event mpm_worker \
+    && a2enmod mpm_prefork headers rewrite
 
 COPY . /var/www/html
 COPY docker-entrypoint.sh /usr/local/bin/pppm-entrypoint
