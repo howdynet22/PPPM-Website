@@ -9,7 +9,9 @@
     teams: [],
     rolePermissions: null,
     audit: [],
+    feedback: ["360° feedback", "Anonymous competency results for released reviews across the organization."],
     security: [],
+    leadershipFeedback: [],
   };
   let viewerId = 0;
   let viewerRole = "";
@@ -71,6 +73,7 @@
         rolePermissions: result.rolePermissions || null,
         audit: result.audit || [],
         security: result.security || [],
+        leadershipFeedback: result.leadershipFeedback || [],
       };
       fillRoleFilter();
       renderAll();
@@ -260,13 +263,37 @@
       : emptyRow(6, "No sign-in attempts in the last seven days.");
   }
 
+  function renderLeadershipFeedback() {
+    if (viewerRole !== "leadership") return;
+    const host = $("#leadershipFeedback");
+    if (!host) return;
+    host.innerHTML = data.leadershipFeedback.map(row => {
+      const scores = row.available
+        ? row.competencies.map(item => `<div class="metric">
+            <span>${esc(item.name)}</span>
+            ${progressMarkup((Number(item.score) / 5) * 100)}
+            <strong>${Number(item.score).toFixed(1)} / 5</strong>
+          </div>`).join("")
+        : '<div class="notice warn">Anonymous scores are hidden until the required number of peers respond.</div>';
+      return `<article class="card">
+        <div class="section-head"><div>
+          <h3>${esc(row.employee)}</h3>
+          <p class="muted">${esc(row.department)} · ${esc(row.cycle)}</p>
+        </div><span class="status ${row.available ? "green" : "amber"}">${Number(row.responses)}/${Number(row.required)} peer responses</span></div>
+        ${row.available ? `<div class="metric-list">${scores}</div>` : scores}
+      </article>`;
+    }).join("") || '<p class="empty">No released employee feedback is available yet.</p>';
+  }
+
   function renderAll() {
     renderOverview();
     renderUsers();
     renderRoles();
     renderAudit();
     renderSecurity();
+    renderLeadershipFeedback();
     applyPermissions();
+    document.querySelectorAll("[data-leadership-only]").forEach(node => { node.hidden = viewerRole !== "leadership"; });
     applyDynamicMeasurements();
   }
 
