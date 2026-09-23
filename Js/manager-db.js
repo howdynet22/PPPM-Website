@@ -173,6 +173,7 @@
       pdps: result.pdps || [],
       pips: result.pips || [],
       notifications: result.notifications || [],
+      unreadNotificationCount: Number(result.unreadNotificationCount || 0),
       feedback: result.feedback || {},
       releasedFeedback: result.releasedFeedback || [],
       managerRatings: result.managerRatings || {},
@@ -711,6 +712,8 @@
 
   // Render persisted read and unread notifications.
   function renderNotifications() {
+    const navBadge=$("#managerNotificationBadge");
+    if(navBadge){navBadge.textContent=String(data.unreadNotificationCount);navBadge.hidden=data.unreadNotificationCount===0;}
     $("#notificationsList").innerHTML =
       data.notifications
         .map(
@@ -1852,12 +1855,11 @@
 
   // Persist the manager's read-notification state.
   async function markNotifications() {
-    const ids = data.notifications.filter((n) => n.unread).map((n) => n.id);
-    if (!ids.length) return toast("There are no unread notifications.");
+    if (!data.unreadNotificationCount) return toast("There are no unread notifications.");
     try {
       await request("mark_notifications_read", {
         method: "POST",
-        body: JSON.stringify({ ids }),
+        body: JSON.stringify({ all: true }),
       });
       await refresh();
       toast("Notifications marked as read.");
