@@ -115,7 +115,7 @@ function workspace_personal(int $viewer): array
         suggested.id suggestedPeerId,suggested.full_name suggestedPeer,suggested.job_title suggestedPeerJobTitle,
         pn.shared_work sharedWork,pn.collaboration_details collaborationDetails,pn.reviewer_justification reviewerJustification,
         pn.direct_knowledge_confirmed directKnowledgeConfirmed,pn.status,pn.decision_reason decisionReason,pn.suggestion_reason suggestionReason,pn.decided_at decidedAt,manager.full_name manager,
-        pne.status escalationStatus,pne.escalation_reason escalationReason,pne.escalated_at escalatedAt
+        pne.status escalationStatus,pne.escalation_reason escalationReason,pne.escalated_at escalatedAt,pne.resolution_note resolutionNote,pne.resolved_at resolvedAt
         FROM peer_nominations pn JOIN review_participants rp ON rp.id=pn.participant_id
         JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users peer ON peer.id=pn.peer_id
         JOIN users manager ON manager.id=rp.manager_id
