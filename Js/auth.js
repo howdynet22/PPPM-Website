@@ -28,6 +28,10 @@
     const result = await response
       .json()
       .catch(() => ({ ok: false, error: "Invalid server response" }));
+    if (response.status === 401) {
+      window.location.href = "index.html";
+      throw new Error("Your session has expired.");
+    }
     if (!result.ok) throw new Error(result.error || "Request failed");
     if (result.csrfToken) window.currentCsrfToken = result.csrfToken;
     return result;
@@ -340,6 +344,47 @@
     if(workspace){try{localStorage.setItem('pppm.workspace.'+user.id,workspace);}catch(_){}}
   }
 
+  function pageAllowedFor(user) {
+    const isOrganizationPage = location.pathname.endsWith('/org-structure.html');
+    if (workspace) {
+      return (user.workspaces || []).some((space) => space.key === workspace);
+    }
+    if (isOrganizationPage) {
+      return (user.permissions || []).includes('org.structure.view');
+    }
+    return !(allowed.length && !allowed.includes(user.role));
+  }
+
+  function applyFreshIdentity(user) {
+    if (!pageAllowedFor(user)) {
+      window.location.href = user.dashboard_path || "index.html";
+      return false;
+    }
+    applyUser(user);
+    addWorkspaceSwitcher(user);
+    window.currentAuthUser = user;
+    window.dispatchEvent(new CustomEvent('pppm:identity-changed', {detail:user}));
+    return true;
+  }
+
+  // Account details and permissions may be changed by an administrator while
+  // this page is open. Re-read /me on focus and periodically so the affected
+  // user sees the committed values without needing to sign out or hard-refresh.
+  let identityRefreshInFlight = false;
+  async function refreshIdentity() {
+    if (identityRefreshInFlight || document.hidden || !window.currentAuthUser) return;
+    identityRefreshInFlight = true;
+    try {
+      const result = await request("me");
+      window.currentCsrfToken = result.csrfToken || window.currentCsrfToken || "";
+      applyFreshIdentity(result.user);
+    } catch (error) {
+      if (!location.pathname.endsWith('/index.html')) showToast(error.message, true);
+    } finally {
+      identityRefreshInFlight = false;
+    }
+  }
+
   // Verify the session and initialise the page.
   async function init() {
     try {
@@ -347,8 +392,7 @@
       const user = result.user;
       window.currentCsrfToken =
         result.csrfToken || window.currentCsrfToken || "";
-      const isOrganizationPage=location.pathname.endsWith('/org-structure.html');
-      if (workspace ? !(user.workspaces || []).some(s=>s.key===workspace) : (isOrganizationPage ? !(user.permissions || []).includes('org.structure.view') : (allowed.length && !allowed.includes(user.role)))) {
+      if (!pageAllowedFor(user)) {
         window.location.href = user.dashboard_path || "index.html";
         return;
       }
@@ -365,6 +409,11 @@
         window.currentAuthUser=freshUser;
       };
       window.dispatchEvent(new CustomEvent('pppm:authenticated', {detail:user}));
+      window.addEventListener('focus', refreshIdentity);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) refreshIdentity();
+      });
+      setInterval(refreshIdentity, 15000);
     } catch (err) {
       window.location.href = "index.html";
     }

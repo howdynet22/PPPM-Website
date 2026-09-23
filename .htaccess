@@ -8,7 +8,7 @@ Options -Indexes
   Header always set Referrer-Policy "no-referrer"
   Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
   Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
-  <FilesMatch "\.(?:html|php)$">
+  <FilesMatch "\.(?:html|php|js|css)$">
     Header always set Cache-Control "no-store"
   </FilesMatch>
 </IfModule>

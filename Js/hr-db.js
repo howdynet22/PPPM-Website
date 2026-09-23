@@ -72,6 +72,7 @@
   async function load(announce = false) {
     try {
       const result = await request("hr_dashboard&" + filters());
+      window.applyAuthUser?.(result.user);
       viewerId = Number(result.user?.id || 0);
       data = {
         metrics: result.metrics || {},
@@ -812,7 +813,7 @@
   }
 
   function openStartCycleForm() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateValue();
 
   openModal(
     "Create review-cycle draft",

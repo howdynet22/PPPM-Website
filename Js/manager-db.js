@@ -41,6 +41,11 @@
       .replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
+  function localDateValue(date = new Date()) {
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  }
+
   function employeeById(id) {
     return data.employees.find((e) => Number(e.id) === Number(id));
   }
@@ -1673,7 +1678,7 @@
           <input
             id="checkinDate"
             type="date"
-            value="${new Date().toISOString().slice(0, 10)}"
+            value="${localDateValue()}"
           >
         </div>
         <div class="field full">

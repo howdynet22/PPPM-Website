@@ -95,6 +95,11 @@
     });
   }
 
+  function localDateValue(date = new Date()) {
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  }
+
   // Progress bars are sized after render so no inline width is generated.
   function progressMarkup(value) {
     const percentage = Math.max(0, Math.min(100, Number(value) || 0));
@@ -247,6 +252,7 @@
     statusTag,
     fmtDate,
     fmtDateTime,
+    localDateValue,
     emptyRow,
     progressMarkup,
     applyDynamicMeasurements,

@@ -15,6 +15,30 @@ class Client {
 const alex=await new Client().login('alex'),casey=await new Client().login('casey'),jordan=await new Client().login('jordan'),morgan=await new Client().login('morgan');
 const blair=await new Client().login('blair'),quinn=await new Client().login('quinn');
 const hr=await new Client().login('taylor'),hrLead=await new Client().login('riley'),coordinator=await new Client().login('sam'),admin=await new Client().login('devon'),ceo=await new Client().login('avery');
+
+// Administrator edits must be committed, readable from the affected user's
+// existing session, and safe when the reporting manager did not change.
+const adminDashboard=await admin.call('admin_dashboard');
+const originalAlex=adminDashboard.users.find(row=>Number(row.id)===Number(alex.user.id));
+assert(originalAlex,'Administrator dashboard must include Alex');
+const accountPayload=(overrides={})=>({
+  id:Number(originalAlex.id),fullName:originalAlex.full_name,email:originalAlex.email,
+  empCode:originalAlex.emp_code,role:originalAlex.role,jobTitle:originalAlex.job_title||'',
+  departmentId:Number(originalAlex.department_id),teamId:originalAlex.team_id??'',
+  dateJoined:originalAlex.date_joined||'',managerId:originalAlex.manager_id??'',
+  reviewEligible:Number(originalAlex.review_eligible)!==0,...overrides,
+});
+const changedAccount=await admin.call('admin_user_save',accountPayload({
+  fullName:'Alex Morgan Updated',jobTitle:'Senior Product Specialist',
+}));
+assert.equal(changedAccount.user.full_name,'Alex Morgan Updated');
+assert.equal(changedAccount.user.job_title,'Senior Product Specialist');
+const affectedSession=(await alex.call('me')).user;
+assert.equal(affectedSession.full_name,'Alex Morgan Updated');
+assert.equal(affectedSession.job_title,'Senior Product Specialist');
+await admin.call('admin_user_save',accountPayload());
+assert.equal((await alex.call('me')).user.full_name,originalAlex.full_name);
+
 assert.deepEqual(casey.user.workspaces.map(w=>w.key),['employee','manager']);
 assert.deepEqual(hr.user.workspaces.map(w=>w.key),['employee','hr']);
 assert(admin.user.workspaces.some(w=>w.key==='employee'),'Administrators with Personal permission must receive the ordinary Personal workspace');

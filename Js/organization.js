@@ -5,6 +5,10 @@
   const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
   })[c]);
+  const localDateValue = (date = new Date()) => {
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  };
 
   async function request(action, options = {}) {
     const method = String(options.method || "GET").toUpperCase();
@@ -293,7 +297,7 @@
         ? `← Back to ${preferredWorkspace.label} dashboard`
         : "← Back to dashboard";
       backLink.hidden = false;
-      $("#managerEffectiveDate").value = new Date().toISOString().slice(0, 10);
+      $("#managerEffectiveDate").value = localDateValue();
       bindEvents();
       await reload();
       await showPath(state.user.id, false);

@@ -49,7 +49,7 @@ const casey=await new Client().login('casey');
 const peers=await Promise.all(['jamie','drew','blair'].map(async name=>[name,await new Client().login(name)]));
 
 const created=(await riley.call('hr_cycle_create',{
-  name:cycleName,period_start:'2026-07-01',period_end:'2026-09-30',
+  name:cycleName,period_start:'2026-09-01',period_end:'2026-12-31',
   self_deadline:'2099-10-05',peer_deadline:'2099-10-12',manager_deadline:'2099-10-20',min_peers:3,
 })).cycle;
 assert.equal(created.status,'draft');
@@ -62,7 +62,7 @@ const managerUi=await loginPage(browser,'casey','manager-dashboard.html');
 const hrUi=await loginPage(browser,'riley','hr-dashboard.html');
 await waitText(employeeUi.page,'#employeeContent',cycleName);
 await employeeUi.page.click('a[href="#notifications"]');
-await waitText(employeeUi.page,'#employeeContent','Review cycle opened');
+await waitText(employeeUi.page,'#employeeContent','New Performance Review Cycle');
 let inbox=await alex.call('get_notifications');
 assert(inbox.notifications.some(n=>n.notification_type==='review_cycle_open'&&Number(n.entity_id)===Number(created.id)));
 await alex.call('mark_notifications_read',{ids:inbox.notifications.map(n=>Number(n.id))});

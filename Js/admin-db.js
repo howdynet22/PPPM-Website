@@ -59,6 +59,7 @@
   async function load(announce = false) {
     try {
       const result = await request("admin_dashboard&" + userFilters());
+      window.applyAuthUser?.(result.user);
       viewerId = Number(result.user?.id || 0);
       viewerRole = String(result.user?.role || "");
       data = {
@@ -398,7 +399,6 @@
       } else {
         toast(result.message || "Account updated.");
       }
-      if (result.managerWarning) toast(result.managerWarning);
     } catch (error) {
       toast(error.message);
     }

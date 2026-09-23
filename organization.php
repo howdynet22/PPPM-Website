@@ -155,7 +155,10 @@ function assign_primary_manager(
         throw new InvalidArgumentException("An employee cannot report to themselves");
     }
     $pdo = db();
-    $pdo->beginTransaction();
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) {
+        $pdo->beginTransaction();
+    }
     try {
         $pdo->query("SELECT id FROM organization_lock WHERE id=1 FOR UPDATE")->fetchColumn();
         if (would_create_reporting_cycle($employeeId, $managerId, $effectiveFrom)) {
@@ -172,11 +175,18 @@ function assign_primary_manager(
             if ((int) $current["reports_to_employee_id"] === $managerId) {
                 throw new InvalidArgumentException("That employee already has this primary manager");
             }
-            if ($effectiveFrom <= $current["effective_from"]) {
-                throw new InvalidArgumentException("The new effective date must be after the current relationship start date");
+            if ($effectiveFrom < $current["effective_from"]) {
+                throw new InvalidArgumentException("The new effective date cannot be before the current relationship start date");
             }
-            $pdo->prepare("UPDATE reporting_relationships SET effective_to=? WHERE id=?")
-                ->execute([$effectiveFrom, (int) $current["id"]]);
+            if ($effectiveFrom === $current["effective_from"]) {
+                // Replacing a relationship created today cannot produce a
+                // valid historical interval, so replace its zero-day row.
+                $pdo->prepare("DELETE FROM reporting_relationships WHERE id=?")
+                    ->execute([(int) $current["id"]]);
+            } else {
+                $pdo->prepare("UPDATE reporting_relationships SET effective_to=? WHERE id=?")
+                    ->execute([$effectiveFrom, (int) $current["id"]]);
+            }
         }
         $stmt = $pdo->prepare(
             "INSERT INTO reporting_relationships
@@ -202,10 +212,78 @@ function assign_primary_manager(
         audit($createdBy, "CHANGE_PRIMARY_MANAGER", "reporting_relationship", $id,
             "Employee {$employeeId}; manager {$managerId}; effective {$effectiveFrom}" .
             ($reason ? "; reason: " . substr($reason, 0, 150) : ""));
-        $pdo->commit();
+        if ($ownsTransaction) {
+            $pdo->commit();
+        }
         return $id;
     } catch (Throwable $e) {
-        if ($pdo->inTransaction()) {
+        if ($ownsTransaction && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+}
+
+/** End the active primary reporting relationship without inventing a manager. */
+function end_primary_manager(
+    int $employeeId,
+    string $effectiveTo,
+    int $changedBy,
+    ?string $reason = null,
+): bool {
+    if (!organization_user_exists($employeeId, false)) {
+        throw new InvalidArgumentException("Employee account not found");
+    }
+    if (!valid_date($effectiveTo)) {
+        throw new InvalidArgumentException("Enter a valid effective date");
+    }
+
+    $pdo = db();
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) {
+        $pdo->beginTransaction();
+    }
+    try {
+        $pdo->query("SELECT id FROM organization_lock WHERE id=1 FOR UPDATE")->fetchColumn();
+        $stmt = $pdo->prepare(
+            "SELECT id,reports_to_employee_id,effective_from
+             FROM reporting_relationships
+             WHERE employee_id=? AND relationship_type='primary' AND effective_to IS NULL
+             ORDER BY effective_from DESC,id DESC LIMIT 1 FOR UPDATE",
+        );
+        $stmt->execute([$employeeId]);
+        $current = $stmt->fetch();
+        if (!$current) {
+            if ($ownsTransaction) {
+                $pdo->commit();
+            }
+            return false;
+        }
+
+        // A relationship created today cannot be closed today because the
+        // schema requires effective_to > effective_from. Removing that
+        // zero-day row represents the requested state without fake history.
+        if ($effectiveTo <= $current["effective_from"]) {
+            $pdo->prepare("DELETE FROM reporting_relationships WHERE id=?")
+                ->execute([(int) $current["id"]]);
+        } else {
+            $pdo->prepare("UPDATE reporting_relationships SET effective_to=? WHERE id=?")
+                ->execute([$effectiveTo, (int) $current["id"]]);
+        }
+        audit(
+            $changedBy,
+            "REMOVE_PRIMARY_MANAGER",
+            "reporting_relationship",
+            (int) $current["id"],
+            "Employee {$employeeId}; previous manager {$current['reports_to_employee_id']}" .
+                ($reason ? "; reason: " . substr($reason, 0, 150) : ""),
+        );
+        if ($ownsTransaction) {
+            $pdo->commit();
+        }
+        return true;
+    } catch (Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) {
             $pdo->rollBack();
         }
         throw $e;
@@ -418,6 +496,11 @@ function organization_api(string $action): never
                 json_response(["ok" => false, "error" => "Invalid department details"], 422);
             }
             if ($id > 0) {
+                $exists = db()->prepare("SELECT COUNT(*) FROM departments WHERE id=?");
+                $exists->execute([$id]);
+                if (!(bool) $exists->fetchColumn()) {
+                    json_response(["ok" => false, "error" => "Department not found"], 404);
+                }
                 db()->prepare("UPDATE departments SET department_code=?,department_name=?,head_employee_id=?,is_active=? WHERE id=?")
                     ->execute([$code, $name, $headId, $active, $id]);
             } else {
@@ -447,6 +530,11 @@ function organization_api(string $action): never
                 json_response(["ok" => false, "error" => "Department not found"], 422);
             }
             if ($id > 0) {
+                $exists = db()->prepare("SELECT COUNT(*) FROM teams WHERE id=?");
+                $exists->execute([$id]);
+                if (!(bool) $exists->fetchColumn()) {
+                    json_response(["ok" => false, "error" => "Team not found"], 404);
+                }
                 db()->prepare("UPDATE teams SET department_id=?,team_code=?,team_name=?,team_lead_employee_id=?,is_active=? WHERE id=?")
                     ->execute([$departmentId, $code, $name, $leadId, $active, $id]);
             } else {

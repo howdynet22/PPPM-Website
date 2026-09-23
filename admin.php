@@ -408,13 +408,23 @@ function admin_api(string $action): never
             }
 
             $temporaryPassword = null;
+            $existing = null;
+            $currentManagerId = null;
             if ($id > 0) {
-                $stmt = db()->prepare("SELECT role,is_active FROM users WHERE id=?");
+                $stmt = db()->prepare(
+                    "SELECT u.role,u.is_active,apr.reports_to_employee_id manager_id
+                     FROM users u
+                     LEFT JOIN active_primary_relationships apr ON apr.employee_id=u.id
+                     WHERE u.id=?",
+                );
                 $stmt->execute([$id]);
                 $existing = $stmt->fetch();
                 if (!$existing) {
                     json_response(["ok" => false, "error" => "User not found"], 404);
                 }
+                $currentManagerId = $existing["manager_id"] === null
+                    ? null
+                    : (int) $existing["manager_id"];
                 // An administrator cannot change their own role out of access.
                 if ($id === $actorId && $role !== $existing["role"]) {
                     json_response(
@@ -422,81 +432,101 @@ function admin_api(string $action): never
                         409,
                     );
                 }
-                $pdo = db();
-                $pdo->beginTransaction();
-                $pdo->prepare(
-                    "UPDATE users SET full_name=?,email=?,emp_code=?,role=?,job_title=?,
-                     department_id=?,team_id=?,date_joined=?,review_eligible=? WHERE id=?",
-                )->execute([
-                    $fullName,
-                    $email,
-                    $empCode,
-                    $role,
-                    $jobTitle !== "" ? $jobTitle : null,
-                    $departmentId,
-                    $teamId,
-                    $dateJoined !== "" ? $dateJoined : null,
-                    $reviewEligible ? 1 : 0,
-                    $id,
-                ]);
-                if (
-                    (int) $existing["is_active"] === 1 &&
-                    $role !== $existing["role"] &&
-                    admin_capable_user_count() < 1
-                ) {
-                    $pdo->rollBack();
-                    json_response(
-                        [
-                            "ok" => false,
-                            "error" =>
-                                "This role change would leave no active account able to manage users.",
-                        ],
-                        409,
-                    );
-                }
-                $pdo->commit();
-                audit($actorId, "UPDATE_USER", "user", $id, "Role {$role}; department {$departmentId}");
-            } else {
-                $temporaryPassword = admin_temporary_password();
-                db()->prepare(
-                    "INSERT INTO users(emp_code,full_name,email,password_hash,role,job_title,
-                     department_id,team_id,date_joined,is_active,review_eligible) VALUES(?,?,?,?,?,?,?,?,?,1,?)",
-                )->execute([
-                    $empCode,
-                    $fullName,
-                    $email,
-                    password_hash($temporaryPassword, PASSWORD_DEFAULT),
-                    $role,
-                    $jobTitle !== "" ? $jobTitle : null,
-                    $departmentId,
-                    $teamId,
-                    $dateJoined !== "" ? $dateJoined : null,
-                    $reviewEligible ? 1 : 0,
-                ]);
-                $id = (int) db()->lastInsertId();
-                audit($actorId, "CREATE_USER", "user", $id, "Created {$email} with role {$role}");
             }
 
-            $managerWarning = null;
-            if ($managerId !== null && $managerId > 0) {
-                try {
-                    assign_primary_manager(
+            $pdo = db();
+            $pdo->beginTransaction();
+            try {
+                if ($existing) {
+                    $pdo->prepare(
+                        "UPDATE users SET full_name=?,email=?,emp_code=?,role=?,job_title=?,
+                         department_id=?,team_id=?,date_joined=?,review_eligible=? WHERE id=?",
+                    )->execute([
+                        $fullName,
+                        $email,
+                        $empCode,
+                        $role,
+                        $jobTitle !== "" ? $jobTitle : null,
+                        $departmentId,
+                        $teamId,
+                        $dateJoined !== "" ? $dateJoined : null,
+                        $reviewEligible ? 1 : 0,
                         $id,
-                        $managerId,
-                        date("Y-m-d"),
-                        $actorId,
-                        "Set from the administrator dashboard",
-                    );
-                } catch (InvalidArgumentException $e) {
-                    // The account is saved; only the reporting line failed.
-                    $managerWarning = $e->getMessage();
+                    ]);
+                    if (
+                        (int) $existing["is_active"] === 1 &&
+                        $role !== $existing["role"] &&
+                        admin_capable_user_count() < 1
+                    ) {
+                        throw new DomainException(
+                            "This role change would leave no active account able to manage users.",
+                        );
+                    }
+                    audit($actorId, "UPDATE_USER", "user", $id, "Role {$role}; department {$departmentId}");
+                } else {
+                    $temporaryPassword = admin_temporary_password();
+                    $pdo->prepare(
+                        "INSERT INTO users(emp_code,full_name,email,password_hash,role,job_title,
+                         department_id,team_id,date_joined,is_active,review_eligible) VALUES(?,?,?,?,?,?,?,?,?,1,?)",
+                    )->execute([
+                        $empCode,
+                        $fullName,
+                        $email,
+                        password_hash($temporaryPassword, PASSWORD_DEFAULT),
+                        $role,
+                        $jobTitle !== "" ? $jobTitle : null,
+                        $departmentId,
+                        $teamId,
+                        $dateJoined !== "" ? $dateJoined : null,
+                        $reviewEligible ? 1 : 0,
+                    ]);
+                    $id = (int) $pdo->lastInsertId();
+                    audit($actorId, "CREATE_USER", "user", $id, "Created {$email} with role {$role}");
                 }
+
+                if ($managerId !== $currentManagerId) {
+                    if ($managerId !== null && $managerId > 0) {
+                        assign_primary_manager(
+                            $id,
+                            $managerId,
+                            date("Y-m-d"),
+                            $actorId,
+                            "Set from the administrator dashboard",
+                        );
+                    } else {
+                        end_primary_manager(
+                            $id,
+                            date("Y-m-d"),
+                            $actorId,
+                            "Removed from the administrator dashboard",
+                        );
+                    }
+                }
+                $pdo->commit();
+            } catch (InvalidArgumentException|DomainException $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                json_response(["ok" => false, "error" => $e->getMessage()], 422);
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $e;
+            }
+
+            // Read the committed row back before reporting success. This also
+            // gives the client authoritative values instead of trusting its form.
+            $saved = admin_user_rows(["search" => $email]);
+            $saved = array_values(array_filter($saved, fn(array $row): bool => (int) $row["id"] === $id));
+            if (!$saved) {
+                throw new RuntimeException("The account could not be verified after saving.");
             }
             json_response([
                 "ok" => true,
                 "id" => $id,
+                "user" => $saved[0],
                 "temporaryPassword" => $temporaryPassword,
-                "managerWarning" => $managerWarning,
                 "message" => $temporaryPassword ? "Account created." : "Account updated.",
             ]);
 

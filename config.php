@@ -3,6 +3,15 @@ declare(strict_types=1);
 
 // Database and application settings. Railway exposes MYSQL* variables for its
 // MySQL service; the PPPM_* names remain the explicit override and local setup.
+$applicationTimezone = getenv("PPPM_APP_TIMEZONE") ?: "Asia/Colombo";
+try {
+    $applicationTimezoneObject = new DateTimeZone($applicationTimezone);
+} catch (Throwable) {
+    $applicationTimezone = "Asia/Colombo";
+    $applicationTimezoneObject = new DateTimeZone($applicationTimezone);
+}
+date_default_timezone_set($applicationTimezone);
+
 $databaseUrl = getenv("PPPM_DB_URL") ?: getenv("MYSQL_URL") ?: "";
 $databaseParts = $databaseUrl !== "" ? parse_url($databaseUrl) : false;
 
@@ -32,6 +41,12 @@ define("DB_PORT", (int) $databasePort);
 define("DB_NAME", $databaseName);
 define("DB_USER", $databaseUser);
 define("DB_PASS", $databasePass);
+define("APP_TIMEZONE", $applicationTimezone);
+define(
+    "DB_SESSION_TIMEZONE",
+    getenv("PPPM_DB_TIMEZONE") ?:
+        (new DateTimeImmutable("now", $applicationTimezoneObject))->format("P"),
+);
 define(
     "APP_DEBUG",
     filter_var(getenv("PPPM_APP_DEBUG") ?: "false", FILTER_VALIDATE_BOOLEAN),
@@ -56,6 +71,10 @@ function db(): PDO
             PDO::MYSQL_ATTR_MULTI_STATEMENTS => true,
         ],
     );
+    // MySQL TIMESTAMP values are stored in UTC internally. Selecting the
+    // application offset here makes Railway and XAMPP return the same local
+    // wall-clock values, while PHP uses the matching IANA timezone above.
+    $pdo->exec("SET time_zone = " . $pdo->quote(DB_SESSION_TIMEZONE));
     return $pdo;
 }
 

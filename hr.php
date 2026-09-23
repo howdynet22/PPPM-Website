@@ -759,7 +759,11 @@ function hr_api(string $action): never
             if(!hr_can($user,'hr.competencies.manage')) json_response(['ok'=>false,'error'=>'You do not have permission to manage competencies'],403);
             $id=(int)($in['id']??0);$name=trim((string)($in['name']??''));$description=trim((string)($in['description']??''));$active=filter_var($in['isActive']??true,FILTER_VALIDATE_BOOLEAN);
             if($name===''||strlen($name)>80||strlen($description)>255) json_response(['ok'=>false,'error'=>'Enter a competency name and optional description within the limits'],422);
-            if($id){db()->prepare('UPDATE competencies SET name=?,description=?,is_active=? WHERE id=?')->execute([$name,$description?:null,$active?1:0,$id]);}else{db()->prepare('INSERT INTO competencies(name,description,is_active) VALUES(?,?,?)')->execute([$name,$description?:null,$active?1:0]);$id=(int)db()->lastInsertId();}
+            if($id){
+                $exists=db()->prepare('SELECT COUNT(*) FROM competencies WHERE id=?');$exists->execute([$id]);
+                if(!(bool)$exists->fetchColumn())json_response(['ok'=>false,'error'=>'Competency not found'],404);
+                db()->prepare('UPDATE competencies SET name=?,description=?,is_active=? WHERE id=?')->execute([$name,$description?:null,$active?1:0,$id]);
+            }else{db()->prepare('INSERT INTO competencies(name,description,is_active) VALUES(?,?,?)')->execute([$name,$description?:null,$active?1:0]);$id=(int)db()->lastInsertId();}
             audit($actorId,'SAVE_COMPETENCY','competency',$id,$name);json_response(['ok'=>true,'id'=>$id]);
 
                 // Start a new review cycle.
