@@ -407,7 +407,7 @@ try {
                     "rp.employee_id,rp.status participant_status, " .
                     "emp.full_name employee,pn.peer_id,peer.full_name peer,peer.job_title peer_job_title, " .
                     "suggested.full_name suggested_peer_name,suggested.job_title suggested_peer_job_title, " .
-                    "pne.status escalation_status,pne.escalation_reason,pne.escalated_at " .
+                    "pne.status escalation_status,pne.escalation_reason,pne.escalated_at,pne.resolution_note,pne.resolved_at " .
                     "FROM peer_nominations pn JOIN review_participants rp ON rp.id=pn.participant_id " .
                     "JOIN review_cycles rc ON rc.id=rp.cycle_id JOIN users emp ON emp.id=rp.employee_id " .
                     "JOIN users peer ON peer.id=pn.peer_id LEFT JOIN users suggested ON suggested.id=pn.suggested_peer_id " .
@@ -445,6 +445,8 @@ try {
                     "escalationStatus" => $r["escalation_status"],
                     "escalationReason" => $r["escalation_reason"],
                     "escalatedAt" => $r["escalated_at"],
+                    "resolutionNote" => $r["resolution_note"],
+                    "resolvedAt" => $r["resolved_at"],
                 ],
                 $stmt->fetchAll(),
             );

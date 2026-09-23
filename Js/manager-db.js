@@ -474,8 +474,13 @@
     $("#peerTable").innerHTML =
       data.peerNominations
         .map((nomination) => {
-          const escalation = nomination.escalationStatus
-            ? `<div class="muted">HR: ${esc(titleStatus(nomination.escalationStatus))}</div>`
+          const overturned=nomination.escalationStatus==="resolved_overturned";
+          const upheld=nomination.escalationStatus==="resolved_upheld";
+          const pendingHr=nomination.escalationStatus==="pending_hr";
+          const outcome=overturned?"Approved by HR":upheld?"Rejection upheld by HR":pendingHr?"Awaiting HR decision":titleStatus(nomination.status);
+          const outcomeClass=overturned?"green":upheld?"red":pendingHr?"amber":statusClass(nomination.status);
+          const escalation=nomination.escalationStatus && nomination.status==="rejected"
+            ? '<div class="muted">Original manager decision: Rejected</div>'
             : "";
           const buttonLabel = nomination.status === "pending" ? "Review" : "View details";
 
@@ -484,8 +489,8 @@
             <td>${esc(nomination.peer)}<div class="muted">${esc(nomination.peerJobTitle || "Job title not set")}</div></td>
             <td>${esc(nomination.sharedWork)}</td>
             <td>
-              <span class="status ${statusClass(nomination.status)}">
-                ${esc(titleStatus(nomination.status))}
+              <span class="status ${outcomeClass}">
+                ${esc(outcome)}
               </span>${escalation}
             </td>
             <td><button class="btn small ${nomination.status === "pending" ? "primary" : ""}" onclick="openPeerNomination(${nomination.id})">${buttonLabel}</button></td>
@@ -972,7 +977,7 @@
         ? `<div class="notice section-spacing"><strong>Peer-review window closed</strong><p>This nomination is now read-only because the cycle has moved past peer review or its deadline has passed.</p></div>`
         : `<div class="notice section-spacing"><strong>Manager decision</strong><p>${esc(nomination.decisionReason || "No additional decision note was recorded.")}</p>${nomination.suggestedPeer?`<p><strong>Suggested replacement:</strong> ${esc(nomination.suggestedPeer)}${nomination.suggestedPeerJobTitle?` · ${esc(nomination.suggestedPeerJobTitle)}`:""}</p><p>${esc(nomination.suggestionReason || "")}</p>`:""}</div>`;
     const escalation = nomination.escalationStatus
-      ? `<div class="notice warn section-spacing"><strong>Forwarded to HR</strong><p>${esc(nomination.escalationReason || "")}</p><p class="muted">Status: ${esc(titleStatus(nomination.escalationStatus))}</p></div>`
+      ? `<div class="notice ${nomination.escalationStatus==="resolved_overturned"?"success":nomination.escalationStatus==="resolved_upheld"?"warn":""} section-spacing"><strong>${nomination.escalationStatus==="resolved_overturned"?"HR overturned the rejection — reviewer approved":nomination.escalationStatus==="resolved_upheld"?"HR upheld the rejection":"Awaiting HR decision"}</strong><p>${nomination.escalationStatus==="resolved_overturned"?"The peer feedback request is active; this reviewer counts toward the cycle minimum.":nomination.escalationStatus==="resolved_upheld"?"The manager rejection remains in effect.":"The employee forwarded this decision to HR."}</p>${nomination.resolutionNote?`<p><strong>HR reason:</strong> ${esc(nomination.resolutionNote)}</p>`:""}${nomination.escalationReason?`<p><strong>Employee appeal:</strong> ${esc(nomination.escalationReason)}</p>`:""}</div>`
       : "";
     openModal(
       `Peer nomination — ${nomination.employee}`,
