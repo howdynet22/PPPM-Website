@@ -1816,3 +1816,11 @@ textarea:focus-visible {
 .table .btn.small + .btn.small {
   margin-left: 6px;
 }
+
+/* Give HR enough room to see review owners and release blockers together. */
+.modal:has(.cycle-participants) { width: min(1200px, 100%); }
+.cycle-participants .table-wrap { overflow-x: auto; }
+.cycle-participants .table { min-width: 960px; }
+.cycle-participants .table td { vertical-align: top; }
+.cycle-participants .table td:last-child { min-width: 260px; }
+.cycle-participants .table td:last-child .btn { margin: 0 4px 5px 0; }
