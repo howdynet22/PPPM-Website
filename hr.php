@@ -544,7 +544,7 @@ function hr_reports(): array
 
 function hr_api(string $action): never
 {
-    $writes = ["hr_case_resolve", "hr_pip_update", "hr_cycle_create", "hr_cycle_update", "hr_cycle_publish", "hr_cycle_advance", "hr_participant_exception", "hr_record_reassign", "hr_competency_save"];
+    $writes = ["hr_case_resolve", "hr_pip_update", "hr_cycle_create", "hr_cycle_update", "hr_cycle_publish", "hr_cycle_advance", "hr_participant_exception", "hr_participant_exception_revoke", "hr_record_reassign", "hr_competency_save"];
     if (in_array($action, $writes, true)) {
         require_method("POST");
         require_csrf();
@@ -742,6 +742,57 @@ function hr_api(string $action): never
                 if($type==='waive_peer') $pdo->prepare("UPDATE feedback_requests SET status='waived' WHERE participant_id=? AND type='peer' AND status='pending'")->execute([$participantId]);
                 audit($actorId,'REVIEW_PARTICIPANT_EXCEPTION','review_participant',$participantId,$type.': '.substr($reason,0,180)); $pdo->commit();
             }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+            json_response(['ok'=>true]);
+
+        case 'hr_participant_exception_revoke':
+            if(!hr_can($user,'hr.cycles.manage')) json_response(['ok'=>false,'error'=>'You do not have permission to manage participant exceptions'],403);
+            $participantId=(int)($in['participantId']??0);
+            $type=(string)($in['type']??'');
+            $reason=trim((string)($in['reason']??''));
+            if(!in_array($type,['excluded','withdrawn','waive_self','waive_peer'],true)||strlen($reason)<15||strlen($reason)>1000)
+                json_response(['ok'=>false,'error'=>'Choose an active exception and record an undo reason of 15 to 1,000 characters'],422);
+            $pdo=db();
+            $pdo->beginTransaction();
+            try {
+                $stmt=$pdo->prepare("SELECT rp.id,rp.status,rc.status cycle_status FROM review_participants rp JOIN review_cycles rc ON rc.id=rp.cycle_id WHERE rp.id=? FOR UPDATE");
+                $stmt->execute([$participantId]);
+                $participant=$stmt->fetch();
+                if(!$participant||!in_array($participant['cycle_status'],['open','peer_review','manager_review'],true))
+                    json_response(['ok'=>false,'error'=>'Only active review-cycle exceptions can be undone'],409);
+                if(in_array($participant['status'],['manager_submitted','released'],true))
+                    json_response(['ok'=>false,'error'=>'A submitted or released manager review cannot be reopened by undoing an exception'],409);
+                $stmt=$pdo->prepare("SELECT id FROM review_participant_exceptions WHERE participant_id=? AND exception_type=? AND revoked_at IS NULL FOR UPDATE");
+                $stmt->execute([$participantId,$type]);
+                $exceptionId=(int)$stmt->fetchColumn();
+                if(!$exceptionId) json_response(['ok'=>false,'error'=>'This exception is no longer active'],409);
+                $pdo->prepare("UPDATE review_participant_exceptions SET revoked_by=?,revoked_at=NOW() WHERE id=? AND revoked_at IS NULL")->execute([$actorId,$exceptionId]);
+
+                $active=$pdo->prepare("SELECT exception_type FROM review_participant_exceptions WHERE participant_id=? AND revoked_at IS NULL");
+                $active->execute([$participantId]);
+                $remaining=$active->fetchAll(PDO::FETCH_COLUMN);
+                // Exclusion cancels pending work. Restore only pending work for a
+                // participant who is no longer excluded or withdrawn; a remaining
+                // waiver still owns its corresponding request.
+                if(!array_intersect(['excluded','withdrawn'],$remaining)){
+                    if(in_array($type,['excluded','withdrawn'],true)){
+                        $pdo->prepare("UPDATE feedback_requests SET status='pending' WHERE participant_id=? AND status='cancelled' AND type='manager'")->execute([$participantId]);
+                        if(!in_array('waive_self',$remaining,true))
+                            $pdo->prepare("UPDATE feedback_requests SET status='pending' WHERE participant_id=? AND status IN ('cancelled','waived') AND type='self'")->execute([$participantId]);
+                        if(!in_array('waive_peer',$remaining,true))
+                            $pdo->prepare("UPDATE feedback_requests SET status='pending' WHERE participant_id=? AND status IN ('cancelled','waived') AND type='peer'")->execute([$participantId]);
+                    }
+                    if($type==='waive_self')
+                        $pdo->prepare("UPDATE feedback_requests SET status='pending' WHERE participant_id=? AND status='waived' AND type='self'")->execute([$participantId]);
+                    if($type==='waive_peer')
+                        $pdo->prepare("UPDATE feedback_requests SET status='pending' WHERE participant_id=? AND status='waived' AND type='peer'")->execute([$participantId]);
+                }
+                // A self waiver may have advanced the participant without a real
+                // self submission. Reset that synthetic status once the waiver ends.
+                if(in_array($type,['waive_self','excluded','withdrawn'],true)&&!in_array('waive_self',$remaining,true)&&!in_array('excluded',$remaining,true)&&!in_array('withdrawn',$remaining,true))
+                    $pdo->prepare("UPDATE review_participants rp SET rp.status='not_started' WHERE rp.id=? AND rp.status='self_submitted' AND NOT EXISTS (SELECT 1 FROM feedback_requests fr WHERE fr.participant_id=rp.id AND fr.type='self' AND fr.status='submitted')")->execute([$participantId]);
+                audit($actorId,'REVOKE_REVIEW_PARTICIPANT_EXCEPTION','review_participant',$participantId,$type.': '.substr($reason,0,180));
+                $pdo->commit();
+            } catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
             json_response(['ok'=>true]);
 
         case 'hr_record_reassign':

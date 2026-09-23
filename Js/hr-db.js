@@ -775,7 +775,7 @@
     // Generated buttons are handled by delegation, so no inline handlers are
     // written into table markup.
     document.addEventListener("click", (event) => {
-      const target = event.target.closest("[data-employee],[data-case],[data-pip],[data-resolve],[data-confirm-case],[data-save-pip],[data-cycle-advance],[data-cycle-edit],[data-save-cycle-edit],[data-manage-participants],[data-participant-exception],[data-competency],[data-save-competency]");
+      const target = event.target.closest("[data-employee],[data-case],[data-pip],[data-resolve],[data-confirm-case],[data-save-pip],[data-cycle-advance],[data-cycle-edit],[data-save-cycle-edit],[data-manage-participants],[data-participant-exception],[data-revoke-exception],[data-competency],[data-save-competency]");
       if (!target) return;
       if (target.dataset.employee) openEmployee(target.dataset.employee);
       else if (target.dataset.case) resolveCaseFromOverview(target.dataset.case);
@@ -793,15 +793,31 @@
       else if(target.dataset.saveCycleEdit) saveCycleEdit(target.dataset.saveCycleEdit);
       else if(target.dataset.manageParticipants) openCycleParticipants(target.dataset.manageParticipants);
       else if(target.dataset.participantException) setParticipantException(target.dataset.participantException,target.dataset.exceptionType,target.dataset.cycleId);
+      else if(target.dataset.revokeException) revokeParticipantException(target.dataset.revokeException,target.dataset.exceptionType,target.dataset.cycleId);
     });
   }
 
   async function openCycleParticipants(id){
-    try{const result=await request('hr_cycle_participants&id='+Number(id));const rows=result.participants||[];openModal('Cycle participants',`<div class="table-wrap"><table class="table"><thead><tr><th>Participant</th><th>Manager</th><th>Self</th><th>Peer responses</th><th>Exceptions</th><th>Recovery action</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${esc(p.employee)}</td><td>${esc(p.manager)}${Number(p.manager_active)?'':' <strong>(inactive)</strong>'}</td><td>${esc(p.self_status||'missing')}</td><td>${Number(p.peer_responses)}/${Number(p.min_peers)}</td><td>${esc(p.exceptions||'—')}</td><td><button class="btn small" data-participant-exception="${p.id}" data-exception-type="waive_self" data-cycle-id="${id}">Waive self</button> <button class="btn small" data-participant-exception="${p.id}" data-exception-type="waive_peer" data-cycle-id="${id}">Waive peers</button> <button class="btn small" data-participant-exception="${p.id}" data-exception-type="excluded" data-cycle-id="${id}">Exclude</button></td></tr>`).join('')}</tbody></table></div>`,`<button class="btn" onclick="closeModal()">Close</button>`);}catch(error){toast(error.message);}
+    try{
+      const result=await request('hr_cycle_participants&id='+Number(id));
+      const rows=result.participants||[];
+      const types=[['waive_self','Waive self'],['waive_peer','Waive peers'],['excluded','Exclude']];
+      openModal('Cycle participants',`<p class="muted">A waiver removes one requirement; exclusion removes the participant from cycle readiness. Undo an exception to restore its requirement and pending work.</p><div class="table-wrap"><table class="table"><thead><tr><th>Participant</th><th>Manager</th><th>Self</th><th>Peer responses</th><th>Exceptions</th><th>Recovery action</th></tr></thead><tbody>${rows.map(p=>{
+        const active=(p.exceptions||'').split(',').filter(Boolean);
+        const actions=types.map(([type,label])=>active.includes(type)
+          ? `<button class="btn small" data-revoke-exception="${p.id}" data-exception-type="${type}" data-cycle-id="${id}">Undo ${label.toLowerCase()}</button>`
+          : `<button class="btn small" data-participant-exception="${p.id}" data-exception-type="${type}" data-cycle-id="${id}" ${active.includes('excluded')?'disabled title="Undo exclusion first"':''}>${label}</button>`).join(' ');
+        return `<tr><td>${esc(p.employee)}</td><td>${esc(p.manager)}${Number(p.manager_active)?'':' <strong>(inactive)</strong>'}</td><td>${esc(p.self_status||'missing')}</td><td>${Number(p.peer_responses)}/${Number(p.min_peers)}</td><td>${esc(p.exceptions||'—')}</td><td>${actions}</td></tr>`;
+      }).join('')}</tbody></table></div>`,`<button class="btn" onclick="closeModal()">Close</button>`);
+    }catch(error){toast(error.message);}
   }
   async function setParticipantException(participantId,type,cycleId){
     const reason=window.prompt('Record the reason for this audited exception (at least 15 characters):','');if(reason===null)return;
     try{await request('hr_participant_exception',{method:'POST',body:JSON.stringify({participantId:Number(participantId),type,reason:reason.trim()})});toast('Participant exception recorded.','success');await load();openCycleParticipants(cycleId);}catch(error){toast(error.message);}
+  }
+  async function revokeParticipantException(participantId,type,cycleId){
+    const reason=window.prompt('Why is this exception being undone? (at least 15 characters):','');if(reason===null)return;
+    try{await request('hr_participant_exception_revoke',{method:'POST',body:JSON.stringify({participantId:Number(participantId),type,reason:reason.trim()})});toast('Exception undone; pending requirements restored.','success');await load();openCycleParticipants(cycleId);}catch(error){toast(error.message);}
   }
 
   function openCycleEdit(id){
