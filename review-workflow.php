@@ -90,6 +90,59 @@ function cycle_readiness(int $cycleId): array
     ];
 }
 
+/** Enrol a saved account while self reviews are still open.
+ * Caller owns the transaction so account, reporting line and enrolment commit together. */
+function review_enrol_saved_user(int $userId, int $actorId): ?string
+{
+    $pdo = db();
+    $cycle = $pdo->query("SELECT id,name,status,self_deadline FROM review_cycles
+        WHERE status IN ('open','peer_review','manager_review') ORDER BY id DESC LIMIT 1 FOR UPDATE")->fetch();
+    if (!$cycle) return null;
+
+    $existing = $pdo->prepare("SELECT id FROM review_participants WHERE cycle_id=? AND employee_id=?");
+    $existing->execute([$cycle['id'], $userId]);
+    if ($existing->fetchColumn()) return null;
+
+    if ($cycle['status'] !== 'open') return 'next_cycle';
+
+    $person = $pdo->prepare("SELECT u.full_name,u.is_active,u.review_eligible,
+        EXISTS (SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id
+                WHERE rp.role_code=u.role AND p.permission_code='employee.dashboard' AND p.is_active=1) has_personal,
+        apr.reports_to_employee_id manager_id
+        FROM users u LEFT JOIN active_primary_relationships apr ON apr.employee_id=u.id
+        LEFT JOIN users m ON m.id=apr.reports_to_employee_id AND m.is_active=1
+        WHERE u.id=?");
+    $person->execute([$userId]);
+    $person = $person->fetch();
+    if (!$person || !(int)$person['is_active'] || !(int)$person['review_eligible']) return null;
+    if (!(int)$person['has_personal']) {
+        throw new DomainException('Choose an access level with a Personal workspace or turn off review-cycle eligibility.');
+    }
+    if (!$person['manager_id']) {
+        throw new DomainException('Assign an active primary manager to include this person in the open review cycle.');
+    }
+    $activeManager = $pdo->prepare("SELECT is_active FROM users WHERE id=?");
+    $activeManager->execute([$person['manager_id']]);
+    if (!(int)$activeManager->fetchColumn()) {
+        throw new DomainException('Assign an active primary manager to include this person in the open review cycle.');
+    }
+
+    $pdo->prepare("INSERT INTO review_participants(cycle_id,employee_id,manager_id,action_manager_id,status)
+        VALUES(?,?,?,?,'not_started')")->execute([
+        $cycle['id'],$userId,$person['manager_id'],$person['manager_id']
+    ]);
+    $participantId = (int)$pdo->lastInsertId();
+    $pdo->prepare("INSERT INTO feedback_requests(participant_id,respondent_id,type,status,response_deadline)
+        VALUES(?,?,'self','pending',?)")->execute([$participantId,$userId,$cycle['self_deadline']]);
+    create_notification($userId,'review_cycle_open','New Performance Review Cycle',
+        'Your “'.$cycle['name'].'” performance review is now available.',
+        'review_cycle',(int)$cycle['id'],'employee-dashboard.html#feedback',
+        'cycle-open:'.$cycle['id']);
+    audit($actorId,'ENROL_REVIEW_PARTICIPANT','review_participant',$participantId,
+        'Added '.$person['full_name'].' to '.$cycle['name']);
+    return 'enrolled';
+}
+
 function review_publish_cycle(int $cycleId, int $actorId): array
 {
     $pdo=db(); $pdo->beginTransaction();
