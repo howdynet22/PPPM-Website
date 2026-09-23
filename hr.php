@@ -822,12 +822,13 @@ function hr_api(string $action): never
             try {
                 $stmt = $pdo->prepare(
                     "SELECT e.id,e.status,e.nomination_id,n.status AS nomination_status,
-                            n.participant_id,n.peer_id,rp.employee_id,rp.status AS participant_status,
+                            n.participant_id,n.peer_id,rp.employee_id,rp.action_manager_id,peer.full_name peer_name,rp.status AS participant_status,
                             rc.status AS cycle_status,rc.peer_deadline,rc.name cycle_name
                      FROM peer_nomination_escalations e
                      JOIN peer_nominations n ON n.id=e.nomination_id
                      JOIN review_participants rp ON rp.id=n.participant_id
                      JOIN review_cycles rc ON rc.id=rp.cycle_id
+                     JOIN users peer ON peer.id=n.peer_id
                      WHERE e.id=? FOR UPDATE",
                 );
                 $stmt->execute([$id]);
@@ -888,9 +889,13 @@ function hr_api(string $action): never
                     $id,
                     "Nomination " . (int) $case["nomination_id"] . ": " . substr($note, 0, 150),
                 );
-                create_notification((int)$case['employee_id'],'peer_escalation_resolved','Peer nomination case resolved',
-                    'HR has '.($outcome==='resolved_overturned'?'overturned':'upheld').' the manager decision for your peer nomination.',
-                    'peer_nomination_escalation',$id,'employee-dashboard.html#feedback',"peer-escalation-resolved:$id");
+                $overturned=$outcome==='resolved_overturned';
+                $resultMessage='HR '.($overturned?'overturned':'upheld').' the rejection of '.$case['peer_name'].' for “'.$case['cycle_name'].'”. '
+                    .($overturned?'This peer now counts toward the review and can submit feedback.':'The rejection remains in effect.');
+                create_notification((int)$case['employee_id'],'peer_escalation_resolved','Peer nomination: HR decision',
+                    $resultMessage,'peer_nomination_escalation',$id,'employee-dashboard.html#feedback',"peer-escalation-resolved:$id");
+                create_notification((int)$case['action_manager_id'],'peer_escalation_resolved','Peer nomination: HR decision',
+                    $resultMessage,'peer_nomination_escalation',$id,'manager-dashboard.html',"peer-escalation-manager:$id");
                 $pdo->commit();
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
