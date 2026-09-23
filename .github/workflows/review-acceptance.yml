@@ -1,0 +1,54 @@
+name: Review acceptance tests T14-T22
+on:
+  push:
+    branches: [tests/t14-t22-automated]
+  pull_request:
+    paths:
+      - 'tests/review_acceptance.mjs'
+      - '.github/workflows/review-acceptance.yml'
+      - '*.php'
+      - 'schema.sql'
+  workflow_dispatch:
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpassword
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptestpassword"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      PPPM_DB_HOST: 127.0.0.1
+      PPPM_DB_NAME: perf_tracker_test
+      PPPM_DB_USER: root
+      PPPM_DB_PASS: testpassword
+      PPPM_TEST_URL: http://127.0.0.1:8080
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PHP and MySQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y php-cli php-mysql mysql-client
+      - name: Create isolated database and seed fixture
+        run: |
+          sed 's/perf_tracker/perf_tracker_test/g' schema.sql | mysql -h 127.0.0.1 -u root -ptestpassword
+          php scripts/demo.php seed
+      - name: Start local PHP server
+        run: |
+          php -S 127.0.0.1:8080 -t . > /tmp/pppm-php.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/index.html >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/pppm-php.log
+          exit 1
+      - name: Run T14-T22 acceptance tests
+        run: node tests/review_acceptance.mjs
+      - name: Show server errors on failure
+        if: failure()
+        run: cat /tmp/pppm-php.log
