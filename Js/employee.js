@@ -5,6 +5,19 @@
   let user,data,busy=false,dialog,last='';
   const empty=text=>`<p class="empty">${text}</p>`;
   const cycleName=name=>name==='Demo previous check-in'?'Previous Performance Review':name;
+  function reviewResultCard(r) {
+    const released=r.status==='released';
+    const rating=Number(r.final_rating);
+    const hasRating=r.final_rating!==null && r.final_rating!==undefined && Number.isFinite(rating);
+    const scores=(r.feedback||[]).map(f=>{
+      const score=Number(f.avg_score);
+      const value=Number.isFinite(score)?Math.max(0,Math.min(5,score)):0;
+      return `<div class="result-score"><div class="result-score-label"><strong>${esc(f.competency)}</strong><span>${Number.isFinite(score)?score.toFixed(1)+' / 5':'—'}</span></div><div class="result-score-track" role="meter" aria-label="${esc(f.competency)} peer feedback score" aria-valuemin="0" aria-valuemax="5" aria-valuenow="${value}"><span style="width:${value*20}%"></span></div></div>`;
+    }).join('');
+    return `<article class="card review-result"><div class="review-result-head"><div><h3>${esc(cycleName(r.cycle))}</h3><p class="muted">Your review results</p></div><span class="review-result-state">${esc(label(r.status))}</span></div>${released
+      ? `<div class="review-result-overview"><div class="review-result-rating"><span>Final rating</span><strong>${hasRating?rating.toFixed(1):'—'}<small> / 5</small></strong></div><div class="review-result-summary"><strong>Manager summary</strong><p>${r.manager_summary?esc(r.manager_summary):'No summary provided.'}</p></div></div><div class="review-result-peer"><div class="review-result-peer-head"><div><h4>Anonymous peer feedback</h4><p class="muted">Average scores by competency. Reviewer identities are hidden.</p></div></div>${scores?`<div class="review-result-scores">${scores}</div>`:`<p class="notice">Anonymous feedback is available after at least ${Number(r.min_peers)} peer responses.</p>`}</div>`
+      : '<p class="notice">Your results will appear when the review is formally released.</p>'}</article>`;
+  }
   function nominationCard(item) {
     const overturned=item.escalationStatus==='resolved_overturned';
     const upheld=item.escalationStatus==='resolved_upheld';
@@ -86,7 +99,7 @@
       ${(data.nominations || []).map(nominationCard).join('') || empty('No peer reviewers nominated yet.')}</div>
       <div class="card"><h3>My feedback requests</h3>
       ${data.requests.map(r=>`<div class="personal-item section-head"><div><strong>${r.type==='self'?'Self review':`Feedback for ${esc(r.employee)}`}</strong><p class="muted">${esc(cycleName(r.cycle))} · ${label(r.status)}${r.due?` · Due ${esc(r.due)}`:''}${r.late?' · Overdue (still open)':''}</p>${!r.canSubmit && r.status==='pending'?'<p class="muted">The submission window is closed or has not opened.</p>':''}</div><button class="btn small ${r.canSubmit?'primary':''}" data-feedback="${r.id}">${r.canSubmit?'Open form':'View form'}</button></div>`).join('') || empty('No feedback requests assigned.')}</div>
-      ${data.reviews.map(r=>`<article class="card"><h3>${esc(cycleName(r.cycle))}</h3><p><span class="status">${label(r.status)}</span></p>${r.status==='released'?`<p>Final rating: <strong>${r.final_rating==null?'Not rated':`${Number(r.final_rating).toFixed(1)} / 5`}</strong></p><p>${esc(r.manager_summary || '')}</p><h4>Anonymous peer feedback</h4>${r.feedback.length?r.feedback.map(f=>`<p>${esc(f.competency)} <strong>${Number(f.avg_score).toFixed(1)} / 5</strong></p>`).join(''):`<p class="notice">Anonymous feedback is available after at least ${Number(r.min_peers)} peer responses.</p>`}`:'<p class="notice">Your results will appear when the review is formally released.</p>'}</article>`).join('')}</section>`;
+      ${data.reviews.map(reviewResultCard).join('')}</section>`;
     content.querySelectorAll('[data-work-id]').forEach(b=>b.onclick=()=>openWorkItem(b.dataset.workType,Number(b.dataset.workId)));
     content.querySelectorAll('[data-create]').forEach(b=>b.onclick=()=>createForm(b.dataset.create));
     content.querySelectorAll('[data-feedback]').forEach(b=>b.onclick=()=>feedbackForm(Number(b.dataset.feedback)));
