@@ -1824,3 +1824,26 @@ textarea:focus-visible {
 .cycle-participants .table td { vertical-align: top; }
 .cycle-participants .table td:last-child { min-width: 260px; }
 .cycle-participants .table td:last-child .btn { margin: 0 4px 5px 0; }
+
+/* Released personal review results */
+.review-result { padding: 22px; }
+.review-result-head, .review-result-overview, .result-score-label { display:flex; justify-content:space-between; gap:18px; }
+.review-result-head { align-items:start; padding-bottom:16px; border-bottom:1px solid var(--line); }
+.review-result-head h3, .review-result-peer h4 { margin:0 0 4px; }
+.review-result-head p, .review-result-peer-head p { margin:0; }
+.review-result-state { padding:5px 10px; border-radius:999px; background:#e8f7ef; color:#08633b; font-size:12px; font-weight:700; }
+.review-result-overview { padding:20px 0; align-items:stretch; }
+.review-result-rating { min-width:155px; padding:16px 20px; border-radius:10px; background:#f0f5fc; display:flex; flex-direction:column; gap:6px; }
+.review-result-rating > span, .review-result-summary > strong { color:#40516b; font-size:13px; }
+.review-result-rating > strong { font-size:32px; line-height:1.15; color:#182b46; }
+.review-result-rating small { font-size:14px; font-weight:500; }
+.review-result-summary { flex:1; padding:16px 20px; border:1px solid var(--line); border-radius:10px; }
+.review-result-summary p { margin:8px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.review-result-peer { border-top:1px solid var(--line); padding-top:18px; }
+.review-result-scores { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-top:16px; }
+.result-score { padding:14px 16px; border:1px solid var(--line); border-radius:10px; }
+.result-score-label { align-items:baseline; font-size:13px; }
+.result-score-label span { color:#40516b; white-space:nowrap; }
+.result-score-track { height:7px; border-radius:999px; background:#e8edf4; margin-top:12px; overflow:hidden; }
+.result-score-track span { display:block; height:100%; border-radius:999px; background:#315b94; }
+@media (max-width:600px) { .review-result-overview { flex-direction:column; } .review-result-rating { min-width:0; } }
