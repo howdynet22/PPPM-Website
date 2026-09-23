@@ -798,18 +798,34 @@
   }
 
   async function openCycleParticipants(id){
-    try{
+    try {
       const result=await request('hr_cycle_participants&id='+Number(id));
       const rows=result.participants||[];
       const types=[['waive_self','Waive self'],['waive_peer','Waive peers'],['excluded','Exclude']];
-      openModal('Cycle participants',`<p class="muted">Completion and release checks exclude participants marked Exclude or Withdrawn. A waiver removes one requirement while the participant remains in the cycle. Undo an exception to restore its requirement and pending work.</p><div class="table-wrap"><table class="table"><thead><tr><th>Participant</th><th>Manager</th><th>Self</th><th>Peer responses</th><th>Manager review</th><th>Exceptions</th><th>Recovery action</th></tr></thead><tbody>${rows.map(p=>{
-        const active=(p.exceptions||'').split(',').filter(Boolean);
-        const actions=types.map(([type,label])=>active.includes(type)
-          ? `<button class="btn small" data-revoke-exception="${p.id}" data-exception-type="${type}" data-cycle-id="${id}">Undo ${label.toLowerCase()}</button>`
-          : `<button class="btn small" data-participant-exception="${p.id}" data-exception-type="${type}" data-cycle-id="${id}" ${active.includes('excluded')?'disabled title="Undo exclusion first"':''}>${label}</button>`).join(' ');
-        return `<tr><td>${esc(p.employee)}</td><td>${esc(p.manager)}${Number(p.manager_active)?'':' <strong>(inactive)</strong>'}</td><td>${esc(p.self_status||'missing')}</td><td>${Number(p.peer_responses)}/${Number(p.min_peers)}</td><td>${active.includes('excluded')||active.includes('withdrawn')?'Excluded from completion':esc(p.status==='manager_submitted'||p.status==='released'?'Complete':'Still required')}</td><td>${esc(p.exceptions||'—')}</td><td>${actions}</td></tr>`;
-      }).join('')}</tbody></table></div>`,`<button class="btn" onclick="closeModal()">Close</button>`);
-    }catch(error){toast(error.message);}
+      const excluded=p=>['excluded','withdrawn'].some(type=>(p.exceptions||'').split(',').includes(type));
+      const complete=p=>p.status==='manager_submitted'||p.status==='released';
+      const outstanding=rows.filter(p=>!excluded(p)&&!complete(p));
+      const completed=rows.filter(p=>!excluded(p)&&complete(p));
+      const omitted=rows.filter(excluded);
+      const section=(title,description,people)=>people.length
+        ? `<section style="margin-top:20px"><h3 style="margin:0 0 4px">${title} <span class="muted">(${people.length})</span></h3><p class="muted" style="margin:0 0 12px">${description}</p><div class="table-wrap"><table class="table"><thead><tr><th>Participant</th><th>Manager responsible</th><th>Manager review</th><th>Self review</th><th>Peer responses</th><th>HR exceptions</th><th>Actions</th></tr></thead><tbody>${people.map(p=>{
+            const active=(p.exceptions||'').split(',').filter(Boolean);
+            const isExcluded=excluded(p);
+            const actions=types.map(([type,label])=>active.includes(type)
+              ? `<button class="btn small" data-revoke-exception="${p.id}" data-exception-type="${type}" data-cycle-id="${id}">Undo ${label.toLowerCase()}</button>`
+              : `<button class="btn small" data-participant-exception="${p.id}" data-exception-type="${type}" data-cycle-id="${id}" ${isExcluded?'disabled title="Undo exclusion first"':''}>${label}</button>`).join(' ');
+            const state=isExcluded
+              ? '<span style="display:inline-block;padding:5px 9px;border-radius:999px;background:#eef2f7;color:#344054;font-weight:600">Excluded · not required</span>'
+              : complete(p)
+                ? '<span style="display:inline-block;padding:5px 9px;border-radius:999px;background:#e8f7ef;color:#08633b;font-weight:600">Submitted</span>'
+                : '<span style="display:inline-block;padding:5px 9px;border-radius:999px;background:#fff3d8;color:#805000;font-weight:600">Awaiting manager</span>';
+            return `<tr><td><strong>${esc(p.employee)}</strong></td><td><strong>${esc(p.manager)}</strong>${Number(p.manager_active)?'':'<div class="muted">Inactive · reassign manager</div>'}</td><td>${state}</td><td>${esc(p.self_status||'Missing')}</td><td>${Number(p.peer_responses)}/${Number(p.min_peers)}</td><td>${esc(active.join(', ')||'—')}</td><td>${actions}</td></tr>`;
+          }).join('')}</tbody></table></div></section>`
+        : '';
+      const summary=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:12px"><div class="card"><strong>${outstanding.length} awaiting manager review</strong><div class="muted">These active participants block release.</div></div><div class="card"><strong>${completed.length} submitted</strong><div class="muted">Manager reviews complete.</div></div><div class="card"><strong>${omitted.length} excluded</strong><div class="muted">Not counted toward completion.</div></div></div>`;
+      const html='<div class="cycle-participants">'+summary+(outstanding.length?section('Needs manager review','The named manager must submit the review for each participant below.',outstanding):'<div class="notice">No active participant is waiting for a manager review. If release is still blocked, refresh and check other cycle requirements.</div>')+section('Manager reviews submitted','These participants have completed manager review.',completed)+section('Excluded from cycle completion','These participants do not block release while their exclusion is active.',omitted)+'</div>';
+      openModal('Cycle participants',html,`<button class="btn" onclick="closeModal()">Close</button>`);
+    } catch(error){toast(error.message);}
   }
   async function setParticipantException(participantId,type,cycleId){
     const reason=window.prompt('Record the reason for this audited exception (at least 15 characters):','');if(reason===null)return;
