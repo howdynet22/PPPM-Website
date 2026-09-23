@@ -1,0 +1,12 @@
+﻿{
+  "name": "pppm-playwright-tests",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report",
+    "browsers": "playwright install chromium"
+  },
+  "devDependencies": { "@playwright/test": "^1.58.2" }
+}
