@@ -1209,11 +1209,89 @@ button {
 .detail-box small {
   display: block;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 1.4;
   margin-bottom: 5px;
 }
 .detail-box strong {
+  font-size: 15px;
+  line-height: 1.4;
+}
+.detail-box p {
+  margin: 8px 0 0;
   font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.detail-box.compact + .detail-box.compact {
+  margin-top: 10px;
+}
+
+/* HR case evidence stays readable at desktop and narrow widths. */
+#casesOpen {
+  display: grid;
+  gap: 16px;
+}
+.case-card .section-head {
+  margin: 0 0 16px;
+  gap: 16px;
+  align-items: flex-start;
+}
+.case-card .section-head h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.35;
+}
+.case-card .section-head p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.case-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+.case-detail {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.case-detail dt {
+  margin: 0 0 7px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.case-detail dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.case-card .action-group {
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+@media (max-width: 800px) {
+  .case-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .case-card .section-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .case-card .action-group {
+    justify-content: flex-start;
+  }
 }
 .responsive-table {
   min-width: 750px;
