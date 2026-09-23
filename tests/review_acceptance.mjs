@@ -48,6 +48,7 @@ log('T-15');
 let personal=await alex.personal();
 const plan=personal.plans.find(p=>p.actions.some(a=>Number(a.id)===Number(one.id)));
 assert(plan);
+sql('UPDATE pdps SET status=\'draft\',agreed_at=NULL,agreed_by=NULL WHERE id='+Number(plan.id));
 await alex.call('agree_pdp',{id:Number(plan.id)});
 personal=await alex.personal();
 const agreed=personal.plans.find(p=>Number(p.id)===Number(plan.id));
