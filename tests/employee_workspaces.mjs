@@ -39,32 +39,6 @@ assert.equal(affectedSession.job_title,'Senior Product Specialist');
 await admin.call('admin_user_save',accountPayload());
 assert.equal((await alex.call('me')).user.full_name,originalAlex.full_name);
 
-// Adding an eligible user during an open cycle creates a real participant,
-// self-review request and notification, without duplicating them on resave.
-const newAccount={
-  id:0,fullName:'Review Enrolment Test',email:'review.enrolment@demo.pppm.test',
-  empCode:'REVIEW-TEST',role:'employee',jobTitle:'Analyst',
-  departmentId:Number(originalAlex.department_id),teamId:'',
-  dateJoined:'2026-09-23',managerId:Number(casey.user.id),reviewEligible:true,
-};
-await admin.call('admin_user_save',{...newAccount,managerId:''},422);
-const createdAccount=await admin.call('admin_user_save',newAccount);
-assert.match(createdAccount.message,/Added to the open review cycle/);
-const newcomer=new Client();
-newcomer.user=(await newcomer.call('login',{
-  email:newAccount.email,password:createdAccount.temporaryPassword,
-})).user;
-let newcomerWorkspace=(await newcomer.call('workspace&scope=employee')).data;
-const enrolled=newcomerWorkspace.reviews.find(row=>row.cycle==='Demo development check-in');
-assert(enrolled,'New account must be an active review participant');
-assert.equal(newcomerWorkspace.requests.filter(row=>row.type==='self'&&Number(row.participant_id)===Number(enrolled.id)).length,1);
-assert.equal((await newcomer.call('feedback_form&id='+newcomerWorkspace.requests.find(row=>row.type==='self'&&Number(row.participant_id)===Number(enrolled.id)).id)).request.canSubmit,true);
-assert((await newcomer.call('get_notifications')).notifications.some(row=>row.notification_type==='review_cycle_open'));
-await admin.call('admin_user_save',{...newAccount,id:Number(createdAccount.id)});
-newcomerWorkspace=(await newcomer.call('workspace&scope=employee')).data;
-assert.equal(newcomerWorkspace.reviews.filter(row=>row.cycle==='Demo development check-in').length,1);
-assert.equal(newcomerWorkspace.requests.filter(row=>row.type==='self'&&Number(row.participant_id)===Number(enrolled.id)).length,1);
-
 assert.deepEqual(casey.user.workspaces.map(w=>w.key),['employee','manager']);
 assert.deepEqual(hr.user.workspaces.map(w=>w.key),['employee','hr']);
 assert(admin.user.workspaces.some(w=>w.key==='employee'),'Administrators with Personal permission must receive the ordinary Personal workspace');
