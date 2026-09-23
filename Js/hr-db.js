@@ -214,7 +214,7 @@
     $("#casesOpen").innerHTML = data.cases.length
       ? data.cases
           .map(
-            (row) => `<div class="card nomination-item">
+            (row) => `<article class="card nomination-item case-card">
               <div class="section-head">
                 <div>
                   <h3>${esc(row.employee_name)} → ${esc(row.peer_name)}</h3>
@@ -225,18 +225,28 @@
                 </div>
                 ${statusTag(row.cycle_status)}
               </div>
-              <div class="detail-box">
-                <strong>Shared work</strong>
-                <p>${esc(row.shared_work)}</p>
-                <strong>What they worked on together</strong>
-                <p>${esc(row.collaboration_details)}</p>
-                <strong>What the peer observed</strong>
-                <p>${esc(row.reviewer_justification)}</p>
-                <strong>Manager's rejection reason</strong>
-                <p>${esc(row.decision_reason || "No reason recorded.")}</p>
-                <strong>Participant's escalation reason</strong>
-                <p>${esc(row.escalation_reason)}</p>
-              </div>
+              <dl class="case-details">
+                <div class="case-detail">
+                  <dt>Shared work</dt>
+                  <dd>${esc(row.shared_work)}</dd>
+                </div>
+                <div class="case-detail">
+                  <dt>What they worked on together</dt>
+                  <dd>${esc(row.collaboration_details)}</dd>
+                </div>
+                <div class="case-detail">
+                  <dt>What the peer observed</dt>
+                  <dd>${esc(row.reviewer_justification)}</dd>
+                </div>
+                <div class="case-detail">
+                  <dt>Manager's rejection reason</dt>
+                  <dd>${esc(row.decision_reason || "No reason recorded.")}</dd>
+                </div>
+                <div class="case-detail">
+                  <dt>Participant's escalation reason</dt>
+                  <dd>${esc(row.escalation_reason)}</dd>
+                </div>
+              </dl>
               <div class="action-group">
                 <button class="btn" data-resolve="${row.id}" data-outcome="resolved_upheld">
                   Uphold rejection
@@ -247,7 +257,7 @@
                     </button>`
                   : '<span class="muted">Peer-review window closed; rejection can only be upheld.</span>'}
               </div>
-            </div>`,
+            </article>`,
           )
           .join("")
       : '<p class="muted">No escalations are waiting for a decision.</p>';
