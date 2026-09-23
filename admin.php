@@ -265,6 +265,58 @@ function admin_security_rows(): array
         ->fetchAll();
 }
 
+/** Released peer feedback aggregates available to the executive role. */
+function leadership_released_feedback(): array
+{
+    $pdo = db();
+    $stmt = $pdo->query(
+        "SELECT rp.id participant_id, u.full_name employee, rc.name cycle,
+                d.department_name department, rc.min_peers required,
+                (SELECT COUNT(*) FROM feedback_requests fr
+                 WHERE fr.participant_id=rp.id AND fr.type='peer'
+                   AND fr.status='submitted') responses
+         FROM review_participants rp
+         JOIN users u ON u.id=rp.employee_id
+         JOIN departments d ON d.id=u.department_id
+         JOIN review_cycles rc ON rc.id=rp.cycle_id
+         WHERE rp.status='released' AND rc.status IN ('released','closed')
+           AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x
+                           WHERE x.participant_id=rp.id AND x.revoked_at IS NULL
+                             AND x.exception_type IN ('excluded','withdrawn'))
+         ORDER BY rc.period_end DESC, u.full_name"
+    );
+    $aggregate = $pdo->prepare(
+        "SELECT competency, avg_score FROM v_360_summary
+         WHERE participant_id=? AND type='peer' ORDER BY competency"
+    );
+    $results = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $count = (int)$row['responses'];
+        $minimum = (int)$row['required'];
+        $scores = [];
+        if ($count >= $minimum) {
+            $aggregate->execute([(int)$row['participant_id']]);
+            $scores = array_map(
+                static fn($score) => [
+                    'name' => $score['competency'],
+                    'score' => (float)$score['avg_score'],
+                ],
+                $aggregate->fetchAll()
+            );
+        }
+        $results[] = [
+            'employee' => $row['employee'],
+            'cycle' => $row['cycle'],
+            'department' => $row['department'],
+            'responses' => $count,
+            'required' => $minimum,
+            'available' => $count >= $minimum && count($scores) > 0,
+            'competencies' => $scores,
+        ];
+    }
+    return $results;
+}
+
 function admin_api(string $action): never
 {
     $writes = [
@@ -318,6 +370,7 @@ function admin_api(string $action): never
                 "rolePermissions" => admin_can($user, "admin.roles") ? admin_role_matrix() : null,
                 "audit" => admin_can($user, "admin.audit") ? admin_audit_rows(["limit" => 100]) : [],
                 "security" => admin_can($user, "admin.audit") ? admin_security_rows() : [],
+                "leadershipFeedback" => $user["role"] === "leadership" && admin_can($user, "hr.reports") ? leadership_released_feedback() : [],
                 "csrfToken" => csrf_token(),
             ];
             json_response($payload);

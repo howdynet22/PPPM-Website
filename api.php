@@ -658,6 +658,60 @@ try {
                 ];
             }
 
+            // Released cycles are absent from the active review lookup above. Return
+            // only aggregate scores for current direct reports whose review this
+            // manager owned; never send peer ratings or reviewer identities.
+            $releasedFeedback = [];
+            if (has_permission($mid, "manager.reviews")) {
+                $releasedStmt = $pdo->prepare(
+                    "SELECT rp.id participant_id, u.full_name employee, rc.name cycle,
+                            rc.min_peers required
+                     FROM review_participants rp
+                     JOIN review_cycles rc ON rc.id=rp.cycle_id
+                     JOIN users u ON u.id=rp.employee_id AND u.is_active=1
+                     JOIN active_primary_relationships ar ON ar.employee_id=u.id
+                     WHERE ar.reports_to_employee_id=? AND rp.action_manager_id=?
+                       AND rp.status='released' AND rc.status IN ('released','closed')
+                       AND NOT EXISTS (
+                         SELECT 1 FROM review_participant_exceptions x
+                         WHERE x.participant_id=rp.id AND x.revoked_at IS NULL
+                           AND x.exception_type IN ('excluded','withdrawn')
+                       )
+                     ORDER BY rc.period_end DESC, u.full_name"
+                );
+                $releasedStmt->execute([$mid, $mid]);
+                $responseStmt = $pdo->prepare(
+                    "SELECT COUNT(*) FROM feedback_requests
+                     WHERE participant_id=? AND type='peer' AND status='submitted'"
+                );
+                $aggregateStmt = $pdo->prepare(
+                    "SELECT competency, avg_score FROM v_360_summary
+                     WHERE participant_id=? AND type='peer' ORDER BY competency"
+                );
+                foreach ($releasedStmt->fetchAll() as $releasedRow) {
+                    $participantId = (int)$releasedRow['participant_id'];
+                    $responseStmt->execute([$participantId]);
+                    $count = (int)$responseStmt->fetchColumn();
+                    $minimum = (int)$releasedRow['required'];
+                    $releasedCompetencies = [];
+                    if ($count >= $minimum) {
+                        $aggregateStmt->execute([$participantId]);
+                        $releasedCompetencies = array_map(
+                            static fn($row) => ['name' => $row['competency'], 'score' => (float)$row['avg_score']],
+                            $aggregateStmt->fetchAll()
+                        );
+                    }
+                    $releasedFeedback[] = [
+                        'employee' => $releasedRow['employee'],
+                        'cycle' => $releasedRow['cycle'],
+                        'responses' => $count,
+                        'required' => $minimum,
+                        'available' => $count >= $minimum && count($releasedCompetencies) > 0,
+                        'competencies' => $releasedCompetencies,
+                    ];
+                }
+            }
+
             $s = $pdo->query(
                 "SELECT DISTINCT u.id,u.full_name name FROM users u JOIN role_permissions rp ON rp.role_code=u.role JOIN permissions p ON p.id=rp.permission_id WHERE p.permission_code='hr.pips' AND p.is_active=1 AND u.is_active=1 ORDER BY u.full_name",
             );
@@ -693,6 +747,7 @@ try {
                 "pdps" => $pdps,
                 "pips" => $pips,
                 "feedback" => $feedback,
+                "releasedFeedback" => $releasedFeedback,
                 "managerRatings" => $managerRatings,
                 "competencies" => $competencies,
                 "hrOwners" => $hrOwners,

@@ -19,6 +19,7 @@
         <button class="nav-btn active" data-page="overview" data-permission="admin.dashboard">
           Dashboard
         </button>
+        <button class="nav-btn" data-page="feedback" data-permission="hr.reports" data-leadership-only hidden>360° feedback</button>
         <button class="nav-btn" data-page="users" data-permission="admin.users">
           User accounts
         </button>
@@ -129,6 +130,15 @@
         </section>
 
         <!-- User accounts -->
+        <section class="page" id="page-feedback" data-leadership-only hidden>
+          <div class="card">
+            <div class="section-head"><div>
+              <h2>Released employee feedback</h2>
+              <p>Competency averages for each employee and cycle. Peer identities and individual responses remain hidden.</p>
+            </div></div>
+            <div id="leadershipFeedback" class="grid two"></div>
+          </div>
+        </section>
         <section class="page" id="page-users">
           <div class="card">
             <div class="section-head">

@@ -174,6 +174,7 @@
       pips: result.pips || [],
       notifications: result.notifications || [],
       feedback: result.feedback || {},
+      releasedFeedback: result.releasedFeedback || [],
       managerRatings: result.managerRatings || {},
       competencies: result.competencies || [],
       hrOwners: result.hrOwners || [],
@@ -499,7 +500,24 @@
         .join("") ||
       '<tr><td colspan="5" class="empty">No peer nominations.</td></tr>';
 
-    $("#feedbackCards").innerHTML =
+    const releasedCards = (data.releasedFeedback || []).map(result => {
+      const scores = result.available
+        ? result.competencies.map(competency => `<div class="metric">
+            <span>${esc(competency.name)}</span>
+            ${progressMarkup((Number(competency.score) / 5) * 100)}
+            <strong>${Number(competency.score).toFixed(1)} / 5</strong>
+          </div>`).join("")
+        : '<div class="notice warn">Not enough peer responses to show an anonymous aggregate.</div>';
+      return `<div class="card">
+        <div class="section-head">
+          <div><h2>${esc(result.employee)}</h2><p>${esc(result.cycle)} · Released review</p>
+            <p class="muted">Aggregated peer feedback · reviewer identities hidden</p></div>
+          <span class="status ${result.available ? "green" : "amber"}">${Number(result.responses)}/${Number(result.required)} responses</span>
+        </div>
+        ${result.available ? `<div class="metric-list">${scores}</div>` : scores}
+      </div>`;
+    }).join("");
+    const activeCards =
       data.employees.filter((employee) => employee.participantId)
         .map((e) => {
           const f = data.feedback[e.id];
@@ -542,7 +560,8 @@
             <div class="metric-list">${competencyRows}</div>
           </div>`;
         })
-        .join("") || '<div class="empty">No 360° feedback data.</div>';
+        .join("");
+    $("#feedbackCards").innerHTML = releasedCards + activeCards || '<div class="empty">No 360° feedback data for direct reports yet.</div>';
 
     applyDynamicMeasurements();
   }
