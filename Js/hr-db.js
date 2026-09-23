@@ -339,10 +339,11 @@
               blockers.peerResponseShortfall&&`${blockers.peerResponseShortfall} peer responses`,
               blockers.unresolvedEscalations&&`${blockers.unresolvedEscalations} escalations`,
               blockers.inactiveManagers&&`${blockers.inactiveManagers} inactive managers`,
+              blockers.missingManagerReviews&&`${blockers.missingManagerReviews} manager reviews`,
             ].filter(Boolean).join(', ');
             const actionMarkup = action && can('hr.cycles.manage')
               ? `<button class="btn small ${row.status==='manager_review' ? "primary" : ""}" data-cycle-advance="${row.id}" data-next-status="${action[1]}">${action[0]}</button> ${['draft','open','peer_review','manager_review'].includes(row.status)?`<button class="btn small" data-cycle-edit="${row.id}">${row.status==='draft'?'Edit draft':'Extend deadlines'}</button>`:''} ${row.status!=='draft'?`<button class="btn small" data-manage-participants="${row.id}">Participants</button>`:''}${blockerText?`<div class="muted">Blockers: ${esc(blockerText)}</div>`:''}`
-              : '<span class="muted">No action</span>';
+              : `<span class="muted">${action?'Your account cannot manage review cycles. Use an HR cycle manager or administrator.':'No further action available.'}</span>`;
             return `<tr>
               <td><strong>${esc(row.name)}</strong></td>
               <td>${fmtDate(row.period_start)} – ${fmtDate(row.period_end)}</td>
