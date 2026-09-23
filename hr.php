@@ -168,18 +168,20 @@ function hr_cycles(): array
 {
     $sql = "SELECT rc.id,rc.name,rc.status,rc.period_start,rc.period_end,rc.min_peers,
                    rc.self_deadline,rc.peer_deadline,rc.manager_deadline,rc.released_at,
-                   (SELECT COUNT(*) FROM review_participants rp WHERE rp.cycle_id=rc.id) AS participants,
+                   (SELECT COUNT(*) FROM review_participants rp WHERE rp.cycle_id=rc.id AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=rp.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn'))) AS participants,
                    (SELECT COUNT(*) FROM review_participants rp
-                     WHERE rp.cycle_id=rc.id AND rp.status IN ('manager_submitted','released')) AS completed,
+                     WHERE rp.cycle_id=rc.id AND rp.status IN ('manager_submitted','released') AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=rp.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn'))) AS completed,
                    (SELECT COUNT(*) FROM feedback_requests fr
                      JOIN review_participants rp ON rp.id=fr.participant_id
-                     WHERE rp.cycle_id=rc.id AND fr.status='pending') AS pending_forms,
+                     WHERE rp.cycle_id=rc.id AND fr.status='pending' AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=rp.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn'))) AS pending_forms,
                    (SELECT COUNT(*) FROM review_participants rp
                      WHERE rp.cycle_id=rc.id
+                       AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=rp.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn'))
                        AND (SELECT COUNT(*) FROM feedback_requests fr
                             WHERE fr.participant_id=rp.id AND fr.type='peer') >= rc.min_peers) AS peer_ready_participants,
                    (SELECT COUNT(*) FROM review_participants rp
                      WHERE rp.cycle_id=rc.id
+                       AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=rp.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn'))
                        AND (SELECT COUNT(*) FROM feedback_requests fr
                             WHERE fr.participant_id=rp.id AND fr.type='peer' AND fr.status='submitted') < rc.min_peers) AS below_peer_response_threshold,
                    (SELECT ROUND(AVG(rp.final_rating),2) FROM review_participants rp

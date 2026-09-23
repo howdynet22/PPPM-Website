@@ -802,12 +802,12 @@
       const result=await request('hr_cycle_participants&id='+Number(id));
       const rows=result.participants||[];
       const types=[['waive_self','Waive self'],['waive_peer','Waive peers'],['excluded','Exclude']];
-      openModal('Cycle participants',`<p class="muted">A waiver removes one requirement; exclusion removes the participant from cycle readiness. Undo an exception to restore its requirement and pending work.</p><div class="table-wrap"><table class="table"><thead><tr><th>Participant</th><th>Manager</th><th>Self</th><th>Peer responses</th><th>Exceptions</th><th>Recovery action</th></tr></thead><tbody>${rows.map(p=>{
+      openModal('Cycle participants',`<p class="muted">Completion and release checks exclude participants marked Exclude or Withdrawn. A waiver removes one requirement while the participant remains in the cycle. Undo an exception to restore its requirement and pending work.</p><div class="table-wrap"><table class="table"><thead><tr><th>Participant</th><th>Manager</th><th>Self</th><th>Peer responses</th><th>Manager review</th><th>Exceptions</th><th>Recovery action</th></tr></thead><tbody>${rows.map(p=>{
         const active=(p.exceptions||'').split(',').filter(Boolean);
         const actions=types.map(([type,label])=>active.includes(type)
           ? `<button class="btn small" data-revoke-exception="${p.id}" data-exception-type="${type}" data-cycle-id="${id}">Undo ${label.toLowerCase()}</button>`
           : `<button class="btn small" data-participant-exception="${p.id}" data-exception-type="${type}" data-cycle-id="${id}" ${active.includes('excluded')?'disabled title="Undo exclusion first"':''}>${label}</button>`).join(' ');
-        return `<tr><td>${esc(p.employee)}</td><td>${esc(p.manager)}${Number(p.manager_active)?'':' <strong>(inactive)</strong>'}</td><td>${esc(p.self_status||'missing')}</td><td>${Number(p.peer_responses)}/${Number(p.min_peers)}</td><td>${esc(p.exceptions||'—')}</td><td>${actions}</td></tr>`;
+        return `<tr><td>${esc(p.employee)}</td><td>${esc(p.manager)}${Number(p.manager_active)?'':' <strong>(inactive)</strong>'}</td><td>${esc(p.self_status||'missing')}</td><td>${Number(p.peer_responses)}/${Number(p.min_peers)}</td><td>${active.includes('excluded')||active.includes('withdrawn')?'Excluded from completion':esc(p.status==='manager_submitted'||p.status==='released'?'Complete':'Still required')}</td><td>${esc(p.exceptions||'—')}</td><td>${actions}</td></tr>`;
       }).join('')}</tbody></table></div>`,`<button class="btn" onclick="closeModal()">Close</button>`);
     }catch(error){toast(error.message);}
   }
