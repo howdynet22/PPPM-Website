@@ -25,6 +25,7 @@ class Client {
 }
 const accounts=Object.fromEntries(await Promise.all(['alex','casey','jordan','morgan','riley','taylor','sam','devon','avery','blair','quinn'].map(async name=>[name,await new Client().login(name)])));
 const {alex,casey,jordan,morgan,riley,taylor,sam,devon,avery,blair,quinn}=accounts;
+const failures=[];
 const log=(id)=>console.log('PASS '+id);
 
 // T-14: workspace permission is checked server-side for every access tier.
@@ -78,10 +79,16 @@ const nomination=async peer=>alex.call('create_peer_nomination',{
 });
 const n1=await nomination(blair);
 await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:''},422);
-await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'Short'},422);
+await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'Four'},422);
 await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'A'.repeat(1001)},422);
-await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'Insufficient direct observation.'});
-log('T-17');
+try {
+  await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'Valid'});
+  log('T-17');
+} catch (error) {
+  failures.push('T-17: a 5-character reason was rejected: '+error.message);
+  console.error('FAIL '+failures.at(-1));
+  await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'Insufficient direct observation.'});
+}
 await alex.call('escalate_peer_nomination',{id:n1.id,reason:'I disagree with this decision because we worked together directly.'});
 await alex.call('escalate_peer_nomination',{id:n1.id,reason:'A second attempt must fail for the same rejected nomination.'},409);
 log('T-18');
@@ -110,9 +117,17 @@ const self=rows("SELECT id FROM feedback_requests WHERE participant_id="+partici
 assert(self);
 const form=await alex.call('feedback_form&id='+Number(self.id));
 await alex.call('submit_personal_feedback',{id:Number(self.id),ratings:form.competencies.map(c=>({competencyId:Number(c.id),score:4,comment:'Acceptance self assessment.'}))});
+sql("UPDATE review_cycles SET status='peer_review' WHERE id="+Number(cycle));
+const peerRequest=(await quinn.personal()).requests.find(r=>r.type==='peer'&&Number(r.participant_id)===participant);
+assert(peerRequest&&peerRequest.canSubmit,'Peer form should open in peer-review stage');
 sql("UPDATE review_cycles SET status='manager_review' WHERE id="+Number(cycle));
 const blocked=await casey.call('submit_review',{participantId:participant},409);
 assert.match(blocked.error,/peer responses|waiver/i);
+await riley.call('hr_participant_exception',{participantId:participant,type:'waive_peer',reason:'Peer responses unavailable for this isolated acceptance test.'});
+const version=Number(rows('SELECT version FROM review_participants WHERE id='+participant)[0].version);
+const competencies=rows('SELECT competency_id FROM review_cycle_competencies WHERE cycle_id='+Number(cycle));
+await casey.call('submit_review',{participantId:participant,version,rating:4,summary:'Manager review after an audited HR peer waiver.',competencies:competencies.map(c=>({competencyId:Number(c.competency_id),score:4,comment:'Observed delivery.'}))});
+assert.equal(rows('SELECT status FROM review_participants WHERE id='+participant)[0].status,'manager_submitted');
 sql("UPDATE review_cycles SET status="+quote(before)+" WHERE id="+Number(cycle));
 log('T-20');
 
@@ -140,3 +155,5 @@ assert.equal(relation.length,1);
 assert.equal(Number(relation[0].reports_to_employee_id),Number(jordan.user.id));
 assert.equal(Number(rows("SELECT COUNT(*) n FROM reporting_relationships WHERE employee_id="+Number(alex.user.id)+" AND reports_to_employee_id="+Number(oldManager)+" AND relationship_type='primary' AND effective_to IS NULL")[0].n),0);
 log('T-22');
+
+if(failures.length) { console.error(failures.join('\n')); process.exitCode=1; }
