@@ -432,17 +432,21 @@ function hr_cycle_advance(array $in, int $actorId): array
                 api_error('Resolve open escalations and reassign inactive managers before release.',409);
             }
             $pendingStmt = $pdo->prepare(
-                "SELECT COUNT(*) FROM review_participants
-                 WHERE cycle_id=? AND status NOT IN ('manager_submitted','released')
-                   AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=review_participants.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn'))",
+                "SELECT u.full_name AS employee, m.full_name AS manager
+                 FROM review_participants rp
+                 JOIN users u ON u.id=rp.employee_id
+                 JOIN users m ON m.id=rp.action_manager_id
+                 WHERE rp.cycle_id=? AND rp.status NOT IN ('manager_submitted','released')
+                   AND NOT EXISTS (SELECT 1 FROM review_participant_exceptions x WHERE x.participant_id=rp.id AND x.revoked_at IS NULL AND x.exception_type IN ('excluded','withdrawn'))
+                 ORDER BY u.full_name",
             );
             $pendingStmt->execute([$cycleId]);
-            $pending = (int) $pendingStmt->fetchColumn();
-            if ($pending > 0) {
+            $pendingReviews = $pendingStmt->fetchAll();
+            if ($pendingReviews) {
                 $pdo->rollBack();
+                $names = array_map(static fn($row) => $row['employee'] . ' (manager: ' . $row['manager'] . ')', $pendingReviews);
                 api_error(
-                    $pending . " participant" . ($pending === 1 ? "" : "s") .
-                    " still need a manager review before this cycle can be released.",
+                    count($pendingReviews) . " participant(s) still need a manager review: " . implode(', ', $names) . ". Open Participants for details.",
                     409,
                 );
             }
