@@ -342,7 +342,15 @@
            <select id="userManager">${managerOptions}</select>
            <small class="muted">Sets a primary reporting line from today.</small>
          </div>
-         <div class="field"><label><input id="userReviewEligible" type="checkbox" ${record&&Number(record.review_eligible)===0?'':'checked'}> Include in performance review cycles</label><small class="muted">Eligible people must have an active primary manager before a cycle can be published.</small></div>
+         <div class="field full review-eligibility">
+           <label for="userReviewEligible" class="review-eligibility-row">
+             <span class="review-eligibility-copy">
+               <strong>Include in performance review cycles</strong>
+               <small>Requires a Personal workspace and an active manager. Joins the current cycle while self reviews are open; otherwise joins the next one.</small>
+             </span>
+             <input id="userReviewEligible" type="checkbox" ${record && Number(record.review_eligible) === 0 ? "" : "checked"} />
+           </label>
+         </div>
        </div>
        ${record ? "" : '<p class="modal-notice">A temporary password is generated and shown once after saving.</p>'}`,
       `<button class="btn" onclick="closeModal()">Cancel</button>
@@ -395,7 +403,7 @@
       closeModal();
       await load();
       if (result.temporaryPassword) {
-        showTemporaryPassword(payload.email, result.temporaryPassword);
+        showTemporaryPassword(payload.email, result.temporaryPassword, result.message);
       } else {
         toast(result.message || "Account updated.");
       }
@@ -404,12 +412,13 @@
     }
   }
 
-  function showTemporaryPassword(email, password) {
+  function showTemporaryPassword(email, password, message) {
     openModal(
       "Temporary password",
       `<p>Give this to <strong>${esc(email)}</strong>. It is shown once and is not stored in readable form.</p>
        <p class="modal-notice"><strong>${esc(password)}</strong></p>
-       <p class="muted">Ask them to sign in and change it from their dashboard.</p>`,
+       <p class="muted">Ask them to sign in and change it from their dashboard.</p>
+       <p class="muted">${esc(message || "")}</p>`,
       '<button class="btn primary" onclick="closeModal()">Done</button>',
     );
   }

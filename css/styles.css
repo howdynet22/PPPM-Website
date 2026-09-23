@@ -900,6 +900,69 @@ button {
 .form-grid .full {
   grid-column: 1/-1;
 }
+.review-eligibility {
+  margin: 0 0 13px;
+}
+.field .review-eligibility-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 15px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--soft);
+  cursor: pointer;
+}
+.review-eligibility-copy {
+  display: grid;
+  gap: 4px;
+}
+.review-eligibility-copy strong {
+  font-size: 12px;
+  color: var(--text);
+}
+.review-eligibility-copy small {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.field .review-eligibility input[type="checkbox"],
+.review-eligibility input[type="checkbox"] {
+  appearance: none;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 21px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #cbd5e1;
+  cursor: pointer;
+}
+.review-eligibility input[type="checkbox"]::before {
+  content: "";
+  display: block;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px #0002;
+  transition: transform .15s ease;
+}
+.review-eligibility input[type="checkbox"]:checked {
+  background: var(--primary, #334155);
+  border-color: var(--primary, #334155);
+}
+.review-eligibility input[type="checkbox"]:checked::before {
+  transform: translateX(15px);
+}
+.review-eligibility input[type="checkbox"]:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
 .notice {
   padding: 12px;
   border-radius: 8px;
