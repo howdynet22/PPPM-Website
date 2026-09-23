@@ -59,11 +59,11 @@ assert.deepEqual({status:published.status,participants:published.participants,co
 // An administrator's eligibility choice must create a real participant while
 // self reviews are open. Failed saves roll back the new account entirely.
 const admin=await new Client().login('devon');
-const alexRow=(await admin.call('admin_dashboard')).users.find(row=>Number(row.id)===Number(alex.user.id));
+const alexAccount=(await admin.call('admin_dashboard')).users.find(row=>Number(row.id)===Number(alex.user.id));
 const newAccount={
   id:0,fullName:'Review Enrolment Test',email:'review.enrolment@demo.pppm.test',
   empCode:'REVIEW-TEST',role:'employee',jobTitle:'Analyst',
-  departmentId:Number(alexRow.department_id),teamId:'',
+  departmentId:Number(alexAccount.department_id),teamId:'',
   dateJoined:'2026-09-23',managerId:Number(casey.user.id),reviewEligible:true,
 };
 await admin.call('admin_user_save',{...newAccount,managerId:''},422);
