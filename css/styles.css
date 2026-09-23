@@ -1847,3 +1847,8 @@ textarea:focus-visible {
 .result-score-track { height:7px; border-radius:999px; background:#e8edf4; margin-top:12px; overflow:hidden; }
 .result-score-track span { display:block; height:100%; border-radius:999px; background:#315b94; }
 @media (max-width:600px) { .review-result-overview { flex-direction:column; } .review-result-rating { min-width:0; } }
+
+/* Sidebar unread inbox count */
+.notification-nav { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.notification-nav-count { min-width:22px; height:22px; padding:0 6px; border-radius:999px; background:#f3cf75; color:#19283c; font-size:12px; font-weight:700; line-height:22px; text-align:center; }
+.notification-nav-count[hidden] { display:none; }
