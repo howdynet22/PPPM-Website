@@ -26,7 +26,7 @@ jobs:
           fetch-depth: 0
       - name: Apply reviewed patch
         run: |
-          git checkout HEAD^ -- .github/workflows/system-logic-audit.yml
+          git checkout 7d916ad60669430ce0ad81081a1686caee9aebdc -- .github/workflows/system-logic-audit.yml
           git apply --index railway-persistence-fixes.patch
           git rm railway-persistence-fixes.patch
           sed -i "s/period_start:'2026-07-01',period_end:'2026-09-30'/period_start:'2026-09-01',period_end:'2026-12-31'/" tests/review_cycle_lifecycle.mjs
