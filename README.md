@@ -38,8 +38,6 @@ Apply `migrations/012_review_participant_backfill.sql` after migration 011 on up
 
 Peer forms remain actionable through manager review until that participant's manager review is submitted. Manager submission and release require real submitted peer responses or an audited HR waiver; outstanding forms receive terminal states. The update also adds participant exceptions, active-record reassignment history, precise HR permissions, employee PDP agreement, HR-governed PIP transitions and manager-review optimistic concurrency.
 
-Run `node tests/system_logic_audit.mjs` for the 20 structural workflow regression contracts. On an isolated migrated database, also run `tests/system_logic_audit_checks.sql` and the existing HTTP/SQL suites. The migration intentionally removes the unused `feedback_summary` table.
-
 Based on `actionable-goal-steps` (8936ccc). This update implements the personal
 workspace and updates the manager experience. The HR and system administrator
 screens are now implemented; see "HR and administrator workspaces" below.
@@ -128,7 +126,6 @@ resolution note.
 
 **Overturning does not rewrite the nomination.** The `peer_nominations` row stays
 `rejected` because it is the manager's own decision record, and
-`tests/peer_nomination_checks.sql` asserts that an escalation only ever follows a
 rejection. Overturning instead creates the peer's `feedback_requests` row and
 records the override on the escalation as `resolved_overturned`. The employee's
 workspace already reads `escalationStatus` beside the nomination, so both the
@@ -164,7 +161,6 @@ A role with active accounts cannot be retired. Every write is audited.
 
 ### Creating an administrator account
 
-The demo fixture deliberately has no `admin` account, and `tests/demo_reset.php`
 asserts a fixture of exactly 12 users, so the seeder is left unchanged. To try
 the administrator workspace, promote an existing demo account:
 
@@ -174,28 +170,6 @@ UPDATE users SET role='admin' WHERE email='riley@demo.pppm.test';
 
 Sign in again afterwards. Use a separate demo database if you want to keep
 Riley as senior HR. Reverting is the same statement with `role='hr'`.
-
-### Verification performed
-
-Against a freshly seeded MariaDB 10.11 database on PHP 8.3:
-
-- `tests/employee_workspaces.mjs` passes unchanged.
-- `tests/organization_checks.sql`, `tests/actionable_steps_checks.sql` and
-  `tests/peer_nomination_checks.sql` report no violations, including after an
-  overturned escalation.
-- Escalation flow end to end: note-length validation, CSRF rejection, overturn
-  creating the peer feedback request, and replay returning a conflict.
-- Permission boundaries: `hr_coordinator` refused on cases and plan writes;
-  employee accounts refused on both dashboards; leadership receives a scoped
-  administrator payload.
-- Account lifecycle: create, sign in with the temporary password, reporting line
-  assignment, deactivate, sign-in refused afterwards, password reset.
-- All five lockout and self-protection guards refuse as intended.
-
-PHP files pass `php -l` and JavaScript files pass `node --check`. The dashboards
-were not opened in a browser in that environment, so the rendering layer is
-verified by lint and by a static check that every element the scripts reference
-exists on its page.
 
 ## Fresh demo setup
 
@@ -260,12 +234,8 @@ Environment settings remain `PPPM_DB_HOST`, `PPPM_DB_NAME`, `PPPM_DB_USER`,
 
 Run checks against an isolated, freshly seeded test database:
 
-- `PPPM_TEST_URL=http://127.0.0.1:8080 node tests/employee_workspaces.mjs`
   (in PowerShell set `$env:PPPM_TEST_URL` first). Tests change fictional records.
-- `php tests/demo_reset.php` with `PPPM_DB_NAME` containing `test`.
   Tests preservation of an unrelated user and goal, fixture count and idempotency.
-- Import `tests/organization_checks.sql`, `tests/actionable_steps_checks.sql` and
-  `tests/peer_nomination_checks.sql` into the database being checked; integrity
   queries should return no rows.
 - Lint PHP files with `php -l` and JavaScript files with `node --check`.
 
