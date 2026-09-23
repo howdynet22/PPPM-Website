@@ -752,6 +752,7 @@ try {
                 "competencies" => $competencies,
                 "hrOwners" => $hrOwners,
                 "notifications" => $notifications,
+                "unreadNotificationCount" => get_unread_notification_count($mid),
                 "csrfToken" => csrf_token(),
             ]);
 
