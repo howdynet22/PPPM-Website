@@ -86,7 +86,7 @@ function cycle_readiness(int $cycleId): array
         'unresolvedEscalations'=>$scalar("SELECT COUNT(*) FROM peer_nomination_escalations e JOIN peer_nominations n ON n.id=e.nomination_id JOIN review_participants rp ON rp.id=n.participant_id WHERE rp.cycle_id=? AND e.status='pending_hr'"),
         'inactiveManagers'=>$scalar("SELECT COUNT(*) FROM review_participants rp JOIN users m ON m.id=rp.action_manager_id WHERE rp.cycle_id=? AND $active AND m.is_active=0"),
         'missingManagerReviews'=>$scalar("SELECT COUNT(*) FROM review_participants rp WHERE rp.cycle_id=? AND $active AND rp.status NOT IN ('manager_submitted','released')"),
-        'pendingRequests'=>$scalar("SELECT COUNT(*) FROM feedback_requests fr JOIN review_participants rp ON rp.id=fr.participant_id WHERE rp.cycle_id=? AND fr.status='pending'"),
+        'pendingRequests'=>$scalar("SELECT COUNT(*) FROM feedback_requests fr JOIN review_participants rp ON rp.id=fr.participant_id WHERE rp.cycle_id=? AND fr.status='pending' AND $active"),
     ];
 }
 
