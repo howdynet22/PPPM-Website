@@ -6,21 +6,28 @@
   const empty=text=>`<p class="empty">${text}</p>`;
   const cycleName=name=>name==='Demo previous check-in'?'Previous Performance Review':name;
   function nominationCard(item) {
+    const overturned=item.escalationStatus==='resolved_overturned';
+    const upheld=item.escalationStatus==='resolved_upheld';
+    const pendingHr=item.escalationStatus==='pending_hr';
+    const outcome=overturned?'Approved by HR':upheld?'Rejection upheld by HR':pendingHr?'Awaiting HR decision':label(item.status);
+    const outcomeClass=overturned||item.status==='approved'?'green':upheld||item.status==='rejected'&&!pendingHr?'red':'amber';
     const decision=item.status==='rejected'
-      ? `<div class="notice warn"><strong>Manager declined this nomination</strong><p>${esc(item.decisionReason || 'No reason was recorded.')}</p><p>This reviewer no longer counts toward your required peer nominations. Nominate a replacement if you are below the cycle minimum.</p></div>`
+      ? overturned
+        ? `<div class="notice"><strong>Original manager decision: rejected</strong><p>${esc(item.decisionReason || 'No reason was recorded.')}</p><p>HR overturned this decision. This peer now counts toward your approved reviewers and has a feedback request.</p></div>`
+        : `<div class="notice warn"><strong>Manager declined this nomination</strong><p>${esc(item.decisionReason || 'No reason was recorded.')}</p><p>This reviewer does not count toward your required peer nominations. Nominate a replacement if you are below the cycle minimum.</p></div>`
       : item.status==='approved'
         ? '<p class="notice">Approved. The peer feedback request is available to the reviewer.</p>'
         : '<p class="muted">Waiting for your manager to review the evidence.</p>';
     const escalation=item.escalationStatus
-      ? `<div class="notice"><strong>Forwarded to HR</strong><p>${esc(item.escalationReason || '')}</p><p class="muted">Status: ${label(item.escalationStatus)}</p></div>`
+      ? `<div class="notice ${overturned?'success':upheld?'warn':''}"><strong>${overturned?'HR overturned the rejection':upheld?'HR upheld the rejection':'Awaiting HR decision'}</strong><p>${overturned?'The peer feedback request is active.':upheld?'The manager rejection remains in effect.':'Your request has been forwarded to HR.'}</p>${item.resolutionNote?`<p><strong>HR reason:</strong> ${esc(item.resolutionNote)}</p>`:''}${item.escalationReason?`<p><strong>Your appeal:</strong> ${esc(item.escalationReason)}</p>`:''}</div>`
       : '';
     const escalate=item.canEscalate
       ? `<button class="btn small" data-escalate-nomination="${item.id}">Forward decision to HR</button>`
       : '';
-    const suggestion=item.status==='rejected' && item.suggestedPeerId
+    const suggestion=item.status==='rejected' && !overturned && item.suggestedPeerId
       ? `<div class="notice"><strong>Manager suggested a replacement</strong><p>${esc(item.suggestedPeer)}${item.suggestedPeerJobTitle?` · ${esc(item.suggestedPeerJobTitle)}`:''}</p><p>${esc(item.suggestionReason || 'Your manager believes this person is better placed to provide relevant feedback.')}</p><button class="btn small primary" data-use-suggested-peer="${item.suggestedPeerId}" data-participant="${item.participantId}">Nominate ${esc(item.suggestedPeer)}</button></div>`
       : '';
-    return `<article class="personal-item nomination-item"><div class="section-head"><div><h4>${esc(item.peer)}</h4><p class="muted">${esc(item.peerJobTitle || 'Job title not set')} · ${esc(cycleName(item.cycle))}</p></div><span class="status">${label(item.status)}</span></div>
+    return `<article class="personal-item nomination-item"><div class="section-head"><div><h4>${esc(item.peer)}</h4><p class="muted">${esc(item.peerJobTitle || 'Job title not set')} · ${esc(cycleName(item.cycle))}</p></div><span class="status ${outcomeClass}">${esc(outcome)}</span></div>
       <p><strong>Shared work:</strong> ${esc(item.sharedWork)}</p>
       <details><summary>View nomination evidence</summary><p><strong>Work completed together</strong><br>${esc(item.collaborationDetails)}</p><p><strong>Why this peer can review the work</strong><br>${esc(item.reviewerJustification)}</p></details>
       ${decision}${suggestion}${escalation}${escalate}</article>`;
