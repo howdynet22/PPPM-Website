@@ -907,7 +907,7 @@
       </div>
       <div class="form-grid">
         <div class="field">
-          <label>Overall rating (1–5)</label>
+          <label>Manager’s overall rating (1–5)</label><p class="muted">Your assessment; peer competency averages are shown separately.</p>
           <select id="reviewRating">${overallOptions}</select>
         </div>
         <div class="field">
