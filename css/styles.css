@@ -974,6 +974,10 @@ button {
   background: var(--amber-bg);
   color: #805900;
 }
+.notice.success {
+  background: var(--green-bg);
+  color: var(--green);
+}
 
 /* Report charts and metrics */
 .chart {
