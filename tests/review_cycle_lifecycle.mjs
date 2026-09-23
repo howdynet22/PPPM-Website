@@ -56,6 +56,40 @@ assert.equal(created.status,'draft');
 const published=(await riley.call('hr_cycle_publish',{id:Number(created.id)})).cycle;
 assert.deepEqual({status:published.status,participants:published.participants,competencies:published.competencies},{status:'open',participants:1,competencies:3});
 
+// An administrator's eligibility choice must create a real participant while
+// self reviews are open. Failed saves roll back the new account entirely.
+const admin=await new Client().login('devon');
+const alexRow=(await admin.call('admin_dashboard')).users.find(row=>Number(row.id)===Number(alex.user.id));
+const newAccount={
+  id:0,fullName:'Review Enrolment Test',email:'review.enrolment@demo.pppm.test',
+  empCode:'REVIEW-TEST',role:'employee',jobTitle:'Analyst',
+  departmentId:Number(alexRow.department_id),teamId:'',
+  dateJoined:'2026-09-23',managerId:Number(casey.user.id),reviewEligible:true,
+};
+await admin.call('admin_user_save',{...newAccount,managerId:''},422);
+const createdAccount=await admin.call('admin_user_save',newAccount);
+assert.match(createdAccount.message,/Added to the open review cycle/);
+const newcomer=new Client();
+newcomer.user=(await newcomer.call('login',{
+  email:newAccount.email,password:createdAccount.temporaryPassword,
+})).user;
+let newcomerWorkspace=(await newcomer.call('workspace&scope=employee')).data;
+const enrolled=newcomerWorkspace.reviews.find(row=>row.cycle===cycleName);
+assert(enrolled,'New account must be an active review participant');
+const newcomerSelf=newcomerWorkspace.requests.filter(row=>row.type==='self'&&Number(row.participant_id)===Number(enrolled.id));
+assert.equal(newcomerSelf.length,1);
+assert.equal((await newcomer.call('feedback_form&id='+newcomerSelf[0].id)).request.canSubmit,true);
+assert((await newcomer.call('get_notifications')).notifications.some(row=>row.notification_type==='review_cycle_open'));
+await admin.call('admin_user_save',{...newAccount,id:Number(createdAccount.id)});
+newcomerWorkspace=(await newcomer.call('workspace&scope=employee')).data;
+assert.equal(newcomerWorkspace.reviews.filter(row=>row.cycle===cycleName).length,1);
+assert.equal(newcomerWorkspace.requests.filter(row=>row.type==='self'&&Number(row.participant_id)===Number(enrolled.id)).length,1);
+// The test account is withdrawn so the rest of this scenario can advance.
+await riley.call('hr_participant_exception',{
+  participantId:Number(enrolled.id),type:'withdrawn',
+  reason:'Test account was enrolled successfully and is no longer part of the review exercise.',
+});
+
 const browser=await chromium.launch({headless:true,executablePath:process.env.PPPM_CHROME_PATH||'/usr/bin/google-chrome'});
 const employeeUi=await loginPage(browser,'alex','employee-dashboard.html#feedback');
 const managerUi=await loginPage(browser,'casey','manager-dashboard.html');
