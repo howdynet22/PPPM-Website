@@ -74,7 +74,9 @@
       + activeActions.filter(action=>action.progress.status!=='completed').length;
     const pending=data.requests.filter(r=>r.canSubmit).length;
     const notifications=data.notifications || [];
-    const unread=notifications.filter(n=>n.unread).length;
+    const unread=Number(data.unreadNotificationCount ?? notifications.filter(n=>n.unread).length);
+    const navBadge=document.querySelector("#personalNotificationBadge");
+    if(navBadge){navBadge.textContent=String(unread);navBadge.hidden=unread===0;}
     const notificationList=notifications.map(n=>{
       const safeUrl=/^[A-Za-z0-9._/-]+(?:#[A-Za-z0-9_-]+)?$/.test(n.action_url || '')?n.action_url:'';
       return `<article class="personal-item notification-item ${n.unread?'':'is-read'}"><div class="section-head"><div><strong>${n.unread?'<span class="notification-label">New · </span>':''}${esc(n.title)}</strong><p>${esc(n.message)}</p><small class="muted">${esc(n.created_at)}</small></div>${safeUrl?`<a class="btn small" href="${esc(safeUrl)}">Open</a>`:''}</div></article>`;
