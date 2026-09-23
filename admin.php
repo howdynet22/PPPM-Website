@@ -502,6 +502,7 @@ function admin_api(string $action): never
                         );
                     }
                 }
+                $enrolment = $reviewEligible ? review_enrol_saved_user($id, $actorId) : null;
                 $pdo->commit();
             } catch (InvalidArgumentException|DomainException $e) {
                 if ($pdo->inTransaction()) {
@@ -527,7 +528,9 @@ function admin_api(string $action): never
                 "id" => $id,
                 "user" => $saved[0],
                 "temporaryPassword" => $temporaryPassword,
-                "message" => $temporaryPassword ? "Account created." : "Account updated.",
+                "message" => ($temporaryPassword ? "Account created." : "Account updated.") .
+                    ($enrolment === 'enrolled' ? " Added to the open review cycle." :
+                     ($enrolment === 'next_cycle' ? " The current cycle has passed self-review; eligible for the next cycle." : "")),
             ]);
 
         // Activate or deactivate an account.
