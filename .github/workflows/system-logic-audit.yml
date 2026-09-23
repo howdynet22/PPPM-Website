@@ -30,6 +30,7 @@ jobs:
           git apply --index railway-persistence-fixes.patch
           git rm railway-persistence-fixes.patch
           sed -i "s/period_start:'2026-07-01',period_end:'2026-09-30'/period_start:'2026-09-01',period_end:'2026-12-31'/" tests/review_cycle_lifecycle.mjs
+          sed -i "s/'Review cycle opened'/'New Performance Review Cycle'/" tests/review_cycle_lifecycle.mjs
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
