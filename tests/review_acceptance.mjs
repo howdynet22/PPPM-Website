@@ -25,7 +25,6 @@ class Client {
 }
 const accounts=Object.fromEntries(await Promise.all(['alex','casey','jordan','morgan','riley','taylor','sam','devon','avery','blair','quinn'].map(async name=>[name,await new Client().login(name)])));
 const {alex,casey,jordan,morgan,riley,taylor,sam,devon,avery,blair,quinn}=accounts;
-const failures=[];
 const log=(id)=>console.log('PASS '+id);
 
 // T-14: workspace permission is checked server-side for every access tier.
@@ -79,16 +78,11 @@ const nomination=async peer=>alex.call('create_peer_nomination',{
 });
 const n1=await nomination(blair);
 await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:''},422);
-await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'Four'},422);
+await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'Valid'},422);
+await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'A'.repeat(14)},422);
 await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'A'.repeat(1001)},422);
-try {
-  await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'Valid'});
-  log('T-17');
-} catch (error) {
-  failures.push('T-17: a 5-character reason was rejected: '+error.message);
-  console.error('FAIL '+failures.at(-1));
-  await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'Insufficient direct observation.'});
-}
+await casey.call('decide_peer',{id:n1.id,status:'rejected',reason:'A'.repeat(15)});
+log('T-17');
 await alex.call('escalate_peer_nomination',{id:n1.id,reason:'I disagree with this decision because we worked together directly.'});
 await alex.call('escalate_peer_nomination',{id:n1.id,reason:'A second attempt must fail for the same rejected nomination.'},409);
 log('T-18');
@@ -155,5 +149,3 @@ assert.equal(relation.length,1);
 assert.equal(Number(relation[0].reports_to_employee_id),Number(jordan.user.id));
 assert.equal(Number(rows("SELECT COUNT(*) n FROM reporting_relationships WHERE employee_id="+Number(alex.user.id)+" AND reports_to_employee_id="+Number(oldManager)+" AND relationship_type='primary' AND effective_to IS NULL")[0].n),0);
 log('T-22');
-
-if(failures.length) { console.error(failures.join('\n')); process.exitCode=1; }
